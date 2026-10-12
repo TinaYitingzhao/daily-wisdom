@@ -38,6 +38,8 @@ UA = (
     "(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
 )
 MAX_PAGES = 40  # 安全上限，防止无限翻页
+IMG_REFERER = "https://weibo.com/"  # 图床防盗链只认 weibo.com，m.weibo.cn 会被 403
+MAX_IMG_FAILS_IN_A_ROW = 5  # 连续这么多张图失败就整体中止，避免大量无效请求
 
 
 class FetchError(Exception):
@@ -127,7 +129,7 @@ def html_to_text(s):
     text = re.sub(r"[ \t]+\n", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     # 去掉“网页链接”“查看图片”这类无意义尾巴
-    text = re.sub(r"\s*(网页链接|查看图片|全文)\s*$", "", text.strip())
+    text = re.sub(r"\s*(网页链接|查看图片|全文|\S{1,20}的微博视频)\s*$", "", text.strip())
     return text.strip()
 
 
@@ -155,15 +157,21 @@ def pic_urls(mblog):
         url = large.get("url") or pic.get("url")
         if url:
             urls.append(url)
+    # 视频微博没有配图，保存视频封面
+    page = mblog.get("page_info") or {}
+    if not urls and page.get("type") == "video":
+        cover = (page.get("page_pic") or {}).get("url")
+        if cover:
+            urls.append(cover)
     return urls
 
 
 # ---------------------------------------------------------------- 图片
 
-def download_image(url, dest, cookie):
+def download_image(url, dest):
     if dest.exists() and dest.stat().st_size > 0:
         return
-    data = http_get(url, cookie, referer="https://m.weibo.cn/", accept="image/*")
+    data = http_get(url, None, referer=IMG_REFERER, accept="image/*")
     if len(data) < 100:
         raise FetchError(f"图片内容异常（{len(data)} 字节）：{url}")
     tmp = dest.with_suffix(dest.suffix + ".part")
@@ -195,7 +203,7 @@ def build_post(mblog, cookie):
     images = []
     for i, url in enumerate(urls, 1):
         name = f"{mid}_{i}{ext_of(url)}"
-        download_image(url, IMAGES_DIR / name, cookie)
+        download_image(url, IMAGES_DIR / name)
         images.append(f"images/{name}")
         time.sleep(0.3)
 
@@ -239,6 +247,7 @@ def run(cookie, initial):
     since_id = None
     new_posts, errors = [], []
     seen_this_run = set()
+    fails_in_a_row = 0
 
     for page in range(1, MAX_PAGES + 1):
         url = f"{API}?type=uid&value={UID}&containerid={containerid}"
@@ -262,7 +271,17 @@ def run(cookie, initial):
             except (FetchError, KeyError, ValueError) as e:
                 errors.append(f"微博 {mid}：{e}")
                 log(f"  ✗ {mid} 保存失败：{e}")
+                fails_in_a_row += 1
+                if fails_in_a_row >= MAX_IMG_FAILS_IN_A_ROW:
+                    if new_posts:
+                        save_posts(posts + new_posts)
+                    raise FetchError(
+                        f"连续 {fails_in_a_row} 条微博保存失败，已中止（可能是图床防盗链或网络问题）。"
+                        f"最后一个错误：{e}"
+                    )
                 continue
+            if post["images"]:  # 只有真正下载成功过图片才清零
+                fails_in_a_row = 0
             new_posts.append(post)
             if not is_pinned(mblog):
                 page_new += 1
@@ -274,7 +293,8 @@ def run(cookie, initial):
 
         unpinned = [m for m in mblogs if not is_pinned(m)]
         if target is not None:
-            if len(new_posts) >= target:
+            # 按“处理过的条数”计，失败的也算，避免图片全失败时一直往后翻页
+            if len(seen_this_run) >= target:
                 break
         elif unpinned and page_new == 0:
             # 增量模式：这一页全是已经抓过的，说明后面也都抓过了
@@ -287,7 +307,8 @@ def run(cookie, initial):
 
     log(f"本次新增 {len(new_posts)} 条，共 {len(posts) + len(new_posts)} 条。")
     if errors:
-        raise FetchError(f"{len(errors)} 条微博保存失败（下次运行会自动重试）：\n" + "\n".join(errors))
+        shown = "\n".join(errors[:20]) + (f"\n……另外 {len(errors) - 20} 条省略" if len(errors) > 20 else "")
+        raise FetchError(f"{len(errors)} 条微博保存失败（下次运行会自动重试）：\n" + shown)
 
 
 def main():
