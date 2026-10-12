@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>每日智慧</title>
+  <meta name="description" content="索达吉堪布微博每日相册，自动滚动与幻灯片播放。">
+  <meta name="theme-color" content="#f6f3ec" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#161513" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="每日智慧">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="feed" class="feed" aria-live="off"></main>
+
+  <section id="slides" class="slides" hidden>
+    <div id="slide" class="slide"></div>
+    <div class="slide-progress"><div id="progress"></div></div>
+  </section>
+
+  <p id="status" class="status">正在加载…</p>
+
+  <nav id="controls" class="controls" aria-label="播放控制">
+    <div class="seg" role="group" aria-label="模式">
+      <button data-mode="scroll" type="button">滚动</button>
+      <button data-mode="slides" type="button">幻灯片</button>
+    </div>
+
+    <button id="prev" class="icon slides-only" type="button" aria-label="上一条"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
+    <button id="play" class="icon play" type="button" aria-label="暂停"></button>
+    <button id="next" class="icon slides-only" type="button" aria-label="下一条"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
+
+    <label class="speed">
+      <span id="speedLabel">速度</span>
+      <input id="speed" type="range" min="1" max="10" step="1">
+      <output id="speedValue"></output>
+    </label>
+
+    <button id="theme" class="icon" type="button" aria-label="切换深浅色"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/></svg></button>
+    <button id="fullscreen" class="icon" type="button" aria-label="全屏"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+  </nav>
+
+  <script src="app.js"></script>
+</body>
+</html>
