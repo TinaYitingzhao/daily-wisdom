@@ -3,7 +3,7 @@
 // - 图片、音乐文件：缓存优先（文件名不会变内容，下载过一次就一直可用）
 // 媒体单独放一个缓存，网站代码更新时不会把已经存好的图片和音乐清掉。
 
-const SHELL_CACHE = "dw-shell-v4";
+const SHELL_CACHE = "dw-shell-v5";
 const MEDIA_CACHE = "dw-media-v1";
 const SHELL = [
   "./", "index.html", "style.css", "app.js", "manifest.webmanifest",
@@ -45,7 +45,7 @@ self.addEventListener("fetch", (e) => {
 
   if (url.pathname.includes("/images/")) {
     e.respondWith(cacheFirst(req));
-  } else if (url.pathname.includes("/music/") && !url.pathname.endsWith(".txt")) {
+  } else if (url.pathname.includes("/music/") && /\.(mp3|m4a|aac|wav|ogg|oga|opus|flac|webm)$/i.test(url.pathname)) {
     e.respondWith(audio(req));
   } else {
     e.respondWith(networkFirst(req));

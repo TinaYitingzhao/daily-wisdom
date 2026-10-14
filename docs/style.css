@@ -643,6 +643,7 @@ body.is-night .night { opacity: 1; }
 /* 不播放 YouTube 时移到屏幕外（不能用 display:none，否则播放器无法提前初始化） */
 .yt.off { left: -9999px; opacity: 0; pointer-events: none; }
 .yt iframe { display: block; width: 100%; height: 100%; border: 0; }
+.yt.bili { width: 256px; }
 
 .toast {
   position: fixed;
@@ -668,6 +669,7 @@ body.is-night .night { opacity: 1; }
   .ctl-main { width: 52px; height: 52px; }
   .ctl-small { width: 38px; height: 38px; }
   .yt { width: 144px; }
+  .yt.bili { width: 192px; }
   .toast { bottom: calc(max(14px, env(safe-area-inset-bottom)) + 120px); }
   .post { padding-top: 1.8em; padding-bottom: 1.8em; }
 }
