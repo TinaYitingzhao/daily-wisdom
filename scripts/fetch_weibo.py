@@ -14,6 +14,7 @@
 import argparse
 import hashlib
 import html
+import io
 import json
 import os
 import random
@@ -40,6 +41,9 @@ UA = (
     "(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
 )
 MAX_PAGES = 40  # 安全上限，防止无限翻页
+BACKFILL_MAX_PAGES = 1000  # 补抓历史时要从最新一路翻到很早，上限放宽
+MAX_SIDE = 1800  # 新下载的照片长边超过这个像素就缩小（iPad 全屏看不出区别，能省一半以上空间）
+JPEG_QUALITY = 85
 IMG_REFERER = "https://weibo.com/"  # 图床防盗链只认 weibo.com，m.weibo.cn 会被 403
 MAX_IMG_FAILS_IN_A_ROW = 5  # 连续这么多张图失败就整体中止，避免大量无效请求
 
@@ -170,12 +174,32 @@ def pic_urls(mblog):
 
 # ---------------------------------------------------------------- 图片
 
+def shrink(data):
+    """长边超过 MAX_SIDE 或文件较大的 JPEG 重新压缩；GIF/PNG 和没装 Pillow 时原样返回。"""
+    try:
+        from PIL import Image
+    except ImportError:
+        return data
+    try:
+        im = Image.open(io.BytesIO(data))
+        if im.format != "JPEG" or (max(im.size) <= MAX_SIDE and len(data) <= 400_000):
+            return data
+        im = im.convert("RGB")
+        im.thumbnail((MAX_SIDE, MAX_SIDE), Image.LANCZOS)
+        out = io.BytesIO()
+        im.save(out, "JPEG", quality=JPEG_QUALITY, optimize=True, progressive=True)
+        return out.getvalue() if out.tell() < len(data) else data
+    except Exception:  # 图片异常时保留原文件，不影响抓取
+        return data
+
+
 def download_image(url, dest):
     if dest.exists() and dest.stat().st_size > 0:
         return
     data = http_get(url, None, referer=IMG_REFERER, accept="image/*")
     if len(data) < 100:
         raise FetchError(f"图片内容异常（{len(data)} 字节）：{url}")
+    data = shrink(data)
     tmp = dest.with_suffix(dest.suffix + ".part")
     tmp.write_bytes(data)
     tmp.replace(dest)
@@ -286,13 +310,21 @@ def save_posts(posts):
     tmp.replace(POSTS_FILE)
 
 
-def run(cookie, initial):
+def run(cookie, initial, backfill_until=None, max_new=300):
+    """backfill_until：补抓历史模式，从最新一路往回翻，补齐这个日期之后所有还没保存的微博，
+    每次最多新增 max_new 条（分几次跑，会自动接着上次的进度）。"""
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
     posts = load_posts()
     known = {p["id"] for p in posts}
     first_run = not posts
-    target = initial if first_run else None
-    log(f"已有 {len(posts)} 条。{'首次运行，目标约 ' + str(initial) + ' 条' if first_run else '增量更新'}")
+    backfill = backfill_until is not None
+    target = max_new if backfill else (initial if first_run else None)
+    if backfill:
+        log(f"已有 {len(posts)} 条。补抓 {backfill_until} 之后的历史微博，本次最多新增 {max_new} 条")
+    else:
+        log(f"已有 {len(posts)} 条。{'首次运行，目标约 ' + str(initial) + ' 条' if first_run else '增量更新'}")
+    oldest_seen = None
+    reached_end = False
 
     containerid = f"107603{UID}"
     since_id = None
@@ -300,7 +332,7 @@ def run(cookie, initial):
     seen_this_run = set()
     fails_in_a_row = 0
 
-    for page in range(1, MAX_PAGES + 1):
+    for page in range(1, (BACKFILL_MAX_PAGES if backfill else MAX_PAGES) + 1):
         url = f"{API}?type=uid&value={UID}&containerid={containerid}"
         if since_id:
             url += f"&since_id={since_id}"
@@ -320,6 +352,14 @@ def run(cookie, initial):
         page_new = 0
         for mblog in mblogs:
             mid = str(mblog.get("id"))
+            if not is_pinned(mblog):
+                try:
+                    t = parse_time(mblog["created_at"])
+                    oldest_seen = min(oldest_seen or t, t)
+                except (KeyError, ValueError):
+                    t = None
+                if backfill and t and t[:10] < backfill_until:
+                    continue
             if mid in known or mid in seen_this_run:
                 continue
             seen_this_run.add(mid)
@@ -349,7 +389,16 @@ def run(cookie, initial):
             save_posts(posts + new_posts)
 
         unpinned = [m for m in mblogs if not is_pinned(m)]
-        if target is not None:
+        if backfill:
+            if len(seen_this_run) >= target:
+                log(f"本次已新增到上限 {target} 条，剩下的请再运行一次（会接着往下补）。")
+                break
+            if oldest_seen and oldest_seen[:10] < backfill_until:
+                reached_end = True
+                break
+            if page % 20 == 0:
+                log(f"  …已翻到 {oldest_seen[:10] if oldest_seen else '?'}")
+        elif target is not None:
             # 按“处理过的条数”计，失败的也算，避免图片全失败时一直往后翻页
             if len(seen_this_run) >= target:
                 break
@@ -359,10 +408,17 @@ def run(cookie, initial):
 
         since_id = data.get("data", {}).get("cardlistInfo", {}).get("since_id")
         if not since_id:
+            reached_end = True
             break
-        time.sleep(random.uniform(2, 4))
+        time.sleep(random.uniform(1.5, 3) if backfill and page_new == 0 else random.uniform(2, 4))
 
     log(f"本次新增 {len(new_posts)} 条，共 {len(posts) + len(new_posts)} 条。")
+    if backfill:
+        log(f"这次最远翻到：{oldest_seen[:10] if oldest_seen else '未知'}")
+        if reached_end:
+            log(f"历史补抓已完成：{backfill_until} 之后能翻到的微博都已保存"
+                + ("" if oldest_seen and oldest_seen[:10] < backfill_until else
+                   f"（微博只能往回翻到 {oldest_seen[:10] if oldest_seen else '未知'}）"))
     if errors:
         shown = "\n".join(errors[:20]) + (f"\n……另外 {len(errors) - 20} 条省略" if len(errors) > 20 else "")
         raise FetchError(f"{len(errors)} 条微博保存失败（下次运行会自动重试）：\n" + shown)
@@ -371,14 +427,19 @@ def run(cookie, initial):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--initial", type=int, default=100, help="首次运行抓取的条数（默认 100）")
+    ap.add_argument("--backfill-until", metavar="YYYY-MM-DD", help="补抓这个日期之后的历史微博")
+    ap.add_argument("--max-new", type=int, default=300, help="补抓模式每次最多新增的条数（默认 300）")
     args = ap.parse_args()
+    if args.backfill_until and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", args.backfill_until):
+        log("::error::--backfill-until 的格式应为 YYYY-MM-DD，例如 2014-01-01")
+        return 1
 
     cookie = os.environ.get("WEIBO_COOKIE", "").strip()
     if not cookie:
         log("::error::没有找到 WEIBO_COOKIE。请在仓库 Settings → Secrets and variables → Actions 里添加。")
         return 1
     try:
-        run(cookie, args.initial)
+        run(cookie, args.initial, args.backfill_until, args.max_new)
     except FetchError as e:
         for line in str(e).splitlines():
             log(f"::error::{line}")

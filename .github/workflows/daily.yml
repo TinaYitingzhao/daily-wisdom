@@ -30,6 +30,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: 安装图片压缩工具
+        run: pip install --quiet pillow
+
       - name: 抓取微博
         id: fetch
         env:

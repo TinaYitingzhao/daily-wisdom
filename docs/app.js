@@ -6,6 +6,7 @@
   const SLIDE_SEC = [60, 45, 35, 28, 22, 17, 13, 10, 8, 6];
   const REFRESH_MS = 60 * 60 * 1000;
   const HIDE_MS = 3500;
+  const BG_CACHE_POSTS = 200;
   const svg = (d) => '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true">' + d + "</svg>";
   const ICON_PAUSE = svg('<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>');
   const ICON_PLAY = svg('<path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/>');
@@ -270,6 +271,13 @@
     }
 
     const copy = el("div", "copy");
+    // 文字区左上角：头像 + 昵称（固定在角上，不随长文滚动）
+    if (profile && profile.name) {
+      const who = el("div", "who");
+      if (profile.avatar) { const av = el("img"); av.src = profile.avatar; av.alt = ""; who.appendChild(av); }
+      who.appendChild(el("span", "", profile.name));
+      copy.appendChild(who);
+    }
     const inner = el("div", "copy-inner");
     const d = new Date(p.created_at);
     const date = el("div", "date");
@@ -279,12 +287,6 @@
     date.appendChild(dm);
     inner.appendChild(date);
     if (p.text) inner.appendChild(el("p", "text", p.text));
-    if (profile && profile.name) {
-      const by = el("div", "byline");
-      if (profile.avatar) { const av = el("img"); av.src = profile.avatar; av.alt = ""; by.appendChild(av); }
-      by.appendChild(el("span", "", profile.name));
-      inner.appendChild(by);
-    }
     copy.appendChild(inner);
     sl.appendChild(copy);
     return sl;
@@ -774,7 +776,8 @@
   async function cacheImagesInBackground(list = posts) {
     if (!navigator.onLine || !("serviceWorker" in navigator)) return;
     const reg = await navigator.serviceWorker.ready;
-    const urls = list.flatMap((p) => p.images || []);
+    // 只预存最新的 200 条；更早的图片播放到时再下载并缓存，避免一次占用太多 iPad 空间
+    const urls = list.slice(0, BG_CACHE_POSTS).flatMap((p) => p.images || []);
     if (profile && profile.avatar) urls.push(profile.avatar);
     if (reg.active && urls.length) reg.active.postMessage({ type: "cache-media", urls });
   }
