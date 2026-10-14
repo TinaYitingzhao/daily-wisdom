@@ -38,33 +38,72 @@
   <!-- YouTube 曲目的播放器（播放 YouTube 时显示在右上角，按 YouTube 的要求不能隐藏） -->
   <div id="yt" class="yt off" aria-hidden="true"><div id="ytPlayer"></div></div>
 
+  <!-- 相框时钟（参考 iPhone 待机显示） -->
+  <div id="clock" class="clock" hidden><span id="clockTime" class="clock-time"></span><span id="clockDate" class="clock-date"></span></div>
+
+  <!-- 夜间自动变暗 -->
+  <div id="night" class="night" aria-hidden="true"></div>
+
+  <!-- 控制栏：平时隐藏，轻点屏幕出现（参考 Apple TV 播放控制） -->
   <nav id="controls" class="controls" aria-label="播放控制">
-    <div class="seg" role="group" aria-label="模式">
-      <button data-mode="scroll" type="button">滚动</button>
-      <button data-mode="slides" type="button">幻灯片</button>
+    <button id="prev" class="ctl slides-only" type="button" aria-label="上一条"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
+    <button id="play" class="ctl ctl-main" type="button" aria-label="暂停"></button>
+    <button id="next" class="ctl slides-only" type="button" aria-label="下一条"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
+    <span class="ctl-sep" aria-hidden="true"></span>
+    <button id="music" class="ctl ctl-small" type="button" aria-label="背景音乐：关" aria-pressed="false"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg></button>
+    <button id="settingsBtn" class="ctl ctl-small" type="button" aria-label="设置" aria-expanded="false" aria-controls="sheet"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="19" cy="12" r="1.6" fill="currentColor"/></svg></button>
+  </nav>
+
+  <!-- 设置面板（参考 iOS 控制中心 / 设置的分组样式） -->
+  <section id="sheet" class="sheet" role="dialog" aria-label="设置" hidden>
+    <div class="group">
+      <div class="row">
+        <span class="label">播放方式</span>
+        <div class="seg" role="group" aria-label="播放方式">
+          <button data-mode="slides" type="button">幻灯片</button>
+          <button data-mode="scroll" type="button">滚动</button>
+        </div>
+      </div>
+      <label class="row">
+        <span class="label" id="speedLabel">速度</span>
+        <input id="speed" type="range" min="1" max="10" step="1" aria-labelledby="speedLabel">
+        <output id="speedValue" class="value"></output>
+      </label>
     </div>
 
-    <button id="prev" class="icon slides-only" type="button" aria-label="上一条"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
-    <button id="play" class="icon play" type="button" aria-label="暂停"></button>
-    <button id="next" class="icon slides-only" type="button" aria-label="下一条"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
-
-    <label class="speed">
-      <span id="speedLabel">速度</span>
-      <input id="speed" type="range" min="1" max="10" step="1">
-      <output id="speedValue"></output>
-    </label>
-
-    <span class="music">
-      <button id="music" class="icon" type="button" aria-label="背景音乐：关" aria-pressed="false"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg></button>
-      <span id="musicExtra" class="music-extra" hidden>
-        <button id="musicNext" class="icon" type="button" aria-label="下一首"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 5l9 7-9 7zM18 5v14"/></svg></button>
+    <div class="group">
+      <label class="row">
+        <span class="label">背景音乐</span>
+        <input id="musicToggle" class="switch" type="checkbox" role="switch">
+      </label>
+      <div id="musicExtra" class="row" hidden>
+        <button id="musicNext" class="pill-btn" type="button">下一首</button>
         <input id="volume" type="range" min="0" max="100" step="5" aria-label="音量">
-      </span>
-    </span>
+        <span id="nowPlaying" class="value now"></span>
+      </div>
+    </div>
 
-    <button id="theme" class="icon" type="button" aria-label="切换深浅色"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/></svg></button>
-    <button id="fullscreen" class="icon" type="button" aria-label="全屏"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
-  </nav>
+    <div class="group">
+      <div class="row">
+        <span class="label">外观</span>
+        <div class="seg" role="group" aria-label="外观">
+          <button data-theme-opt="auto" type="button">自动</button>
+          <button data-theme-opt="light" type="button">浅色</button>
+          <button data-theme-opt="dark" type="button">深色</button>
+        </div>
+      </div>
+      <label class="row">
+        <span class="label">显示时钟</span>
+        <input id="clockToggle" class="switch" type="checkbox" role="switch">
+      </label>
+      <label class="row">
+        <span class="label">夜间自动变暗<small>22:00 – 6:00</small></span>
+        <input id="nightToggle" class="switch" type="checkbox" role="switch">
+      </label>
+    </div>
+
+    <button id="fullscreen" class="sheet-btn" type="button">进入全屏</button>
+  </section>
 
   <script src="app.js"></script>
 </body>

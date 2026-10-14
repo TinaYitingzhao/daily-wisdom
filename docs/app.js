@@ -26,7 +26,7 @@
   // ---------------------------------------------------------------- 设置
 
   const settings = Object.assign(
-    { mode: "slides", scrollSpeed: 3, slideSpeed: 5, theme: "auto", volume: 60 },
+    { mode: "slides", scrollSpeed: 3, slideSpeed: 5, theme: "auto", volume: 60, clock: true, night: true },
     load()
   );
   // 新版默认幻灯片：旧版本保存的“滚动”设置迁移一次
@@ -226,12 +226,15 @@
 
   const MIN_PER_IMAGE = 7; // 多图微博里每张图至少停留的秒数
 
-  function durationFor(p) {
+  const READ_CHARS_PER_SEC = 5; // 安静阅读的速度，长文按字数多给时间
+
+  // 停留时间：每页至少“基础秒数”，字多的页按阅读速度加时间；多图时每张图至少 7 秒；夜间放慢一半
+  function durationFor(p, pages) {
     const base = SLIDE_SEC[settings.slideSpeed - 1];
-    const chars = (p.text || "").length;
-    const factor = Math.min(3, Math.max(1, chars / 140));
+    const list = pages && pages.length ? pages : [p.text || ""];
+    const text = list.reduce((t, pg) => t + Math.max(base, pg.length / READ_CHARS_PER_SEC), 0);
     const n = (p.images || []).length;
-    return Math.max(base * factor, n * Math.max(MIN_PER_IMAGE, base * 0.6));
+    return Math.max(text, n * Math.max(MIN_PER_IMAGE, base * 0.6)) * (isNight ? 1.5 : 1);
   }
 
   const dayFmt = new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", day: "numeric" });
@@ -288,25 +291,99 @@
     inner.appendChild(date);
     if (p.text) inner.appendChild(el("p", "text", p.text));
     copy.appendChild(inner);
+    // 右下角很淡的进度：第几条 / 共几条，长文再加页码（参考 Apple 照片）
+    copy.appendChild(el("div", "foot"));
     sl.appendChild(copy);
     return sl;
   }
 
-  // 字号随文字长短自适应：从大往小试，放得下就停；实在太长才在停留时间里慢慢滚动
-  function fitText(sl) {
+  function updateFoot(sl) {
+    const foot = sl.querySelector(".foot");
+    if (!foot) return;
+    const pages = sl._pages || [];
+    foot.textContent = (sl._index + 1) + " / " + posts.length
+      + (pages.length > 1 ? "　·　" + (sl._page + 1) + " / " + pages.length + " 页" : "");
+  }
+
+  // 从图片里取一个主色调，用来给文字区染一层很淡的同色（参考 Apple Music 播放页）
+  const tintCanvas = document.createElement("canvas");
+  tintCanvas.width = tintCanvas.height = 20;
+  function tintFrom(img, sl) {
+    try {
+      const g = tintCanvas.getContext("2d", { willReadFrequently: true });
+      g.drawImage(img, 0, 0, 20, 20);
+      const d = g.getImageData(0, 0, 20, 20).data;
+      let r = 0, gg = 0, b = 0, w = 0;
+      for (let k = 0; k < d.length; k += 4) {
+        const mx = Math.max(d[k], d[k + 1], d[k + 2]), mn = Math.min(d[k], d[k + 1], d[k + 2]);
+        const wt = 1 + (mx - mn) / 32; // 越鲜艳的像素权重越大，避免取成一片灰
+        r += d[k] * wt; gg += d[k + 1] * wt; b += d[k + 2] * wt; w += wt;
+      }
+      sl.style.setProperty("--tint", `rgb(${Math.round(r / w)}, ${Math.round(gg / w)}, ${Math.round(b / w)})`);
+    } catch { /* 图片还没加载或跨域时保持默认底色 */ }
+  }
+
+  // 排版：字号随文字长短自适应，从大往小试，放得下就停；
+  // 缩到“舒适阅读的最小字号”仍放不下，就像 Apple Books 一样分页，而不是缩成小字再滚动
+  function layoutText(sl) {
     const inner = sl.querySelector(".copy-inner");
-    const text = sl.querySelector(".text");
-    if (!inner || !text) return;
+    const textEl = sl.querySelector(".text");
+    sl._pages = [];
+    sl._page = 0;
+    if (!inner || !textEl) { updateFoot(sl); return; }
+    const full = sl._text;
+    const fits = () => inner.scrollHeight <= inner.clientHeight + 1;
     const vmin = Math.min(innerWidth, innerHeight);
     const textOnly = sl.classList.contains("text-only");
-    let hi = Math.min(textOnly ? 46 : 34, vmin * (textOnly ? 0.065 : 0.05));
     const lo = Math.max(16, Math.min(20, vmin * 0.042));
-    hi = Math.max(hi, lo);
-    for (let size = hi; size >= lo; size -= 1) {
+    const hi = Math.max(lo, Math.min(textOnly ? 46 : 34, vmin * (textOnly ? 0.065 : 0.05)));
+    const readable = Math.max(lo, Math.round(hi * 0.7));
+
+    textEl.textContent = full;
+    for (let size = hi; size >= readable; size -= 1) {
       sl.style.setProperty("--fs", size + "px");
-      if (inner.scrollHeight <= inner.clientHeight + 1) return;
+      if (fits()) { sl._pages = [full]; updateFoot(sl); return; }
     }
-    sl.style.setProperty("--fs", lo + "px");
+
+    // 分页：每页尽量装满，再退回到最近的句号/换行处断开
+    sl.style.setProperty("--fs", readable + "px");
+    const pages = [];
+    let start = 0;
+    while (start < full.length) {
+      let a = start + 1, b = full.length, best = start + 1;
+      while (a <= b) {
+        const mid = (a + b) >> 1;
+        textEl.textContent = full.slice(start, mid);
+        if (fits()) { best = mid; a = mid + 1; } else { b = mid - 1; }
+      }
+      let end = best;
+      if (end < full.length) {
+        const seg = full.slice(start, end);
+        const minCut = Math.floor(seg.length * 0.55);
+        for (const marks of ["\n", "。！？!?…", "；;，,、：:"]) {
+          let cut = -1;
+          for (const m of marks) cut = Math.max(cut, seg.lastIndexOf(m));
+          if (cut >= minCut) { end = start + cut + 1; break; }
+        }
+      }
+      pages.push(full.slice(start, end).trim());
+      start = end;
+      while (start < full.length && /\s/.test(full[start])) start++;
+    }
+    sl._pages = pages.filter(Boolean);
+    textEl.textContent = sl._pages[0] || "";
+    updateFoot(sl);
+  }
+
+  function turnPage(sl, k) {
+    const textEl = sl.querySelector(".text");
+    sl._page = k;
+    textEl.classList.add("turning");
+    setTimeout(() => {
+      textEl.textContent = sl._pages[k];
+      textEl.classList.remove("turning");
+      updateFoot(sl);
+    }, 600);
   }
 
   let current = null;      // 当前显示的 .sl
@@ -323,19 +400,23 @@
     slideIndex = i;
     slideElapsed = 0;
     photoIdx = 0;
-    slideDuration = durationFor(posts[i]);
     progress.style.width = "0";
 
     const next = slideEl(posts[i]);
+    next._index = i;
+    next._text = posts[i].text || "";
     const n = (posts[i].images || []).length;
-    next.style.setProperty("--kb", (n ? slideDuration / n : slideDuration) + 2 + "s");
     // 等第一张图解码好再切换，避免淡入时闪一下空白
     const first = next.querySelector(".photo");
     if (first && first.decode) await Promise.race([first.decode().catch(() => {}), sleep(2500)]);
     if (token !== slideToken) return;
+    if (first && first.complete) tintFrom(first, next);
 
     stage.appendChild(next);
-    fitText(next);
+    layoutText(next);
+    slideDuration = durationFor(posts[i], next._pages);
+    next.style.setProperty("--kb", (n ? slideDuration / n : slideDuration) + 2 + "s");
+    document.body.classList.toggle("img-top", n > 0);
     const old = current;
     current = next;
     if (!fade) next.style.transition = "none";
@@ -369,23 +450,28 @@
         photos[k].classList.add("on");
         current.querySelector(".backdrop").src = photos[k].src;
         current.querySelector(".count").textContent = (k + 1) + " / " + photos.length;
+        tintFrom(photos[k], current);
         photoIdx = k;
       }
     }
 
-    // 字号缩到最小仍放不下时，在停留时间里缓慢滚完（开头和结尾各停一会）
-    const inner = current.querySelector(".copy-inner");
-    const over = inner.scrollHeight - inner.clientHeight;
-    if (over > 4) {
-      const q = Math.min(1, Math.max(0, (p - 0.15) / 0.7));
-      inner.scrollTop = q * over;
+    // 长文分页：按停留时间平均翻页
+    const pages = current._pages || [];
+    if (pages.length > 1) {
+      const k = Math.min(pages.length - 1, Math.floor(p * pages.length));
+      if (k !== current._page) turnPage(current, k);
     }
     if (slideElapsed >= slideDuration) showSlide(slideIndex + 1);
   }
 
-  window.addEventListener("resize", () => { if (current) fitText(current); });
-  // 网页字体加载完后字宽会变，重新算一次字号
-  if (document.fonts) document.fonts.ready.then(() => { if (current) fitText(current); });
+  function relayout() {
+    if (!current) return;
+    layoutText(current);
+    slideDuration = durationFor(posts[slideIndex], current._pages);
+  }
+  window.addEventListener("resize", relayout);
+  // 网页字体加载完后字宽会变，重新排一次
+  if (document.fonts) document.fonts.ready.then(relayout);
 
   // ---------------------------------------------------------------- 主循环
 
@@ -408,11 +494,44 @@
   }
   function scheduleHide() {
     clearTimeout(hideTimer);
-    if (!playing) return;
+    if (!playing || sheetOpen) return;
     hideTimer = setTimeout(() => {
       controls.classList.add("hide");
       document.body.style.cursor = "none";
     }, HIDE_MS);
+  }
+
+  // ---------------------------------------------------------------- 设置面板
+
+  const sheet = $("sheet");
+  const settingsBtn = $("settingsBtn");
+  let sheetOpen = false;
+  function setSheet(open) {
+    sheetOpen = open;
+    sheet.hidden = !open;
+    settingsBtn.setAttribute("aria-expanded", String(open));
+    if (open) showControls(false); else scheduleHide();
+  }
+
+  // ---------------------------------------------------------------- 时钟与夜间模式（参考 iPhone 待机显示）
+
+  const clockFmt = new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+  const clockDateFmt = new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "short" });
+  let isNight = false;
+
+  function tickClock() {
+    const now = new Date();
+    $("clockTime").textContent = clockFmt.format(now);
+    $("clockDate").textContent = clockDateFmt.format(now);
+    $("clock").hidden = !settings.clock;
+    document.body.classList.toggle("has-clock", settings.clock);
+    const h = now.getHours();
+    const night = settings.night && (h >= 22 || h < 6);
+    if (night !== isNight) {
+      isNight = night;
+      document.body.classList.toggle("is-night", night);
+      if (current) slideDuration = durationFor(posts[slideIndex], current._pages);
+    }
   }
 
   // ---------------------------------------------------------------- 防止熄屏
@@ -447,14 +566,18 @@
     if (cur) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
     else (fsEl.requestFullscreen || fsEl.webkitRequestFullscreen).call(fsEl);
   }
+  const onFsChange = () => {
+    $("fullscreen").textContent = (document.fullscreenElement || document.webkitFullscreenElement) ? "退出全屏" : "进入全屏";
+  };
+  document.addEventListener("fullscreenchange", onFsChange);
+  document.addEventListener("webkitfullscreenchange", onFsChange);
 
-  const THEMES = ["auto", "light", "dark"];
-  const THEME_LABEL = { auto: "跟随系统", light: "浅色", dark: "深色" };
   function applyTheme() {
     if (settings.theme === "auto") delete root.dataset.theme;
     else root.dataset.theme = settings.theme;
-    $("theme").setAttribute("aria-label", "配色：" + THEME_LABEL[settings.theme]);
-    $("theme").title = "配色：" + THEME_LABEL[settings.theme];
+    for (const b of document.querySelectorAll("[data-theme-opt]")) {
+      b.setAttribute("aria-pressed", String(b.dataset.themeOpt === settings.theme));
+    }
   }
 
   // ---------------------------------------------------------------- 背景音乐
@@ -607,6 +730,7 @@
       else music.yt.loadVideoById(t.id);
     }
     musicBtn.title = "正在播放：" + t.title;
+    $("nowPlaying").textContent = t.title;
   }
 
   function nextTrack() { playTrack(music.idx + 1); }
@@ -634,7 +758,9 @@
     music.on = on;
     musicBtn.setAttribute("aria-pressed", String(on));
     musicBtn.setAttribute("aria-label", on ? "背景音乐：开" : "背景音乐：关");
+    $("musicToggle").checked = on;
     $("musicExtra").hidden = !on;
+    if (!on) $("nowPlaying").textContent = "";
     if (on) { music.fails = 0; playTrack(music.idx); }
     else { stopCurrent(); musicBtn.title = ""; }
   }
@@ -657,12 +783,14 @@
   $("prev").addEventListener("click", () => showSlide(slideIndex - 1));
   $("next").addEventListener("click", () => showSlide(slideIndex + 1));
   $("fullscreen").addEventListener("click", toggleFullscreen);
-  $("theme").addEventListener("click", () => {
-    settings.theme = THEMES[(THEMES.indexOf(settings.theme) + 1) % THEMES.length];
-    save();
-    applyTheme();
-  });
+  for (const b of document.querySelectorAll("[data-theme-opt]")) {
+    b.addEventListener("click", () => { settings.theme = b.dataset.themeOpt; save(); applyTheme(); });
+  }
+  settingsBtn.addEventListener("click", () => setSheet(!sheetOpen));
+  $("clockToggle").addEventListener("change", (e) => { settings.clock = e.target.checked; save(); tickClock(); relayout(); });
+  $("nightToggle").addEventListener("change", (e) => { settings.night = e.target.checked; save(); tickClock(); });
   musicBtn.addEventListener("click", () => setMusic(!music.on));
+  $("musicToggle").addEventListener("change", (e) => setMusic(e.target.checked));
   $("musicNext").addEventListener("click", () => { music.fails = 0; nextTrack(); });
   volume.addEventListener("input", () => {
     settings.volume = Number(volume.value);
@@ -674,7 +802,7 @@
     const v = Number(speed.value);
     if (settings.mode === "slides") {
       settings.slideSpeed = v;
-      slideDuration = durationFor(posts[slideIndex] || {});
+      if (current) slideDuration = durationFor(posts[slideIndex], current._pages);
     } else {
       settings.scrollSpeed = v;
     }
@@ -686,7 +814,8 @@
   controls.addEventListener("pointerup", () => scheduleHide());
   document.addEventListener("pointermove", (e) => { if (e.pointerType === "mouse") showControls(); });
   document.addEventListener("click", (e) => {
-    if (controls.contains(e.target)) return;
+    if (controls.contains(e.target) || sheet.contains(e.target)) return;
+    if (sheetOpen) { setSheet(false); return; } // 点面板外面先关面板
     if (controls.classList.contains("hide")) showControls();
     else if (playing) { controls.classList.add("hide"); }
   });
@@ -707,6 +836,7 @@
     else if (e.key === "ArrowRight" && settings.mode === "slides") showSlide(slideIndex + 1);
     else if (e.key === "ArrowLeft" && settings.mode === "slides") showSlide(slideIndex - 1);
     else if (e.key === "f" || e.key === "F") toggleFullscreen();
+    else if (e.key === "Escape" && sheetOpen) setSheet(false);
     else if (e.key === "m" || e.key === "M") setMusic(!music.on);
     else return;
     showControls();
@@ -716,6 +846,10 @@
 
   async function start() {
     applyTheme();
+    $("clockToggle").checked = settings.clock;
+    $("nightToggle").checked = settings.night;
+    tickClock();
+    setInterval(tickClock, 15000);
     volume.value = settings.volume;
     try { profile = await fetchProfile(); } catch { profile = null; }
     renderProfile();
