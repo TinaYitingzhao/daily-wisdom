@@ -66,6 +66,8 @@ jobs:
         with:
           ref: ${{ github.ref }}
       - uses: actions/configure-pages@v5
+      - name: 读取 B 站收藏夹（生成背景音乐清单）
+        run: python3 scripts/fetch_music.py
       - uses: actions/upload-pages-artifact@v3
         with:
           path: docs

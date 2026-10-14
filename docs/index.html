@@ -37,6 +37,8 @@
 
   <!-- YouTube 曲目的播放器（播放 YouTube 时显示在右上角，按 YouTube 的要求不能隐藏） -->
   <div id="yt" class="yt off" aria-hidden="true"><div id="ytPlayer"></div></div>
+  <!-- B 站曲目的播放器（iPad 上若没自动出声，点一下这里的播放键） -->
+  <div id="bili" class="yt bili off"></div>
 
   <!-- 相框时钟（参考 iPhone 待机显示） -->
   <div id="clock" class="clock" hidden><span id="clockTime" class="clock-time"></span><span id="clockDate" class="clock-date"></span></div>
@@ -76,6 +78,14 @@
         <span class="label">背景音乐</span>
         <input id="musicToggle" class="switch" type="checkbox" role="switch">
       </label>
+      <div class="row">
+        <span class="label">音乐来源<small>自动：先 YouTube，打不开时用 B 站</small></span>
+        <div class="seg" role="group" aria-label="音乐来源">
+          <button data-src="auto" type="button">自动</button>
+          <button data-src="yt" type="button">YouTube</button>
+          <button data-src="bili" type="button">B站</button>
+        </div>
+      </div>
       <div id="musicExtra" class="row" hidden>
         <button id="musicNext" class="pill-btn" type="button">下一首</button>
         <input id="volume" type="range" min="0" max="100" step="5" aria-label="音量">

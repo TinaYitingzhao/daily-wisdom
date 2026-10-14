@@ -26,7 +26,7 @@
   // ---------------------------------------------------------------- 设置
 
   const settings = Object.assign(
-    { mode: "slides", scrollSpeed: 3, slideSpeed: 5, theme: "auto", volume: 60, clock: true, night: true },
+    { mode: "slides", scrollSpeed: 3, slideSpeed: 5, theme: "auto", volume: 60, clock: true, night: true, musicSource: "auto" },
     load()
   );
   // 新版默认幻灯片：旧版本保存的“滚动”设置迁移一次
@@ -582,12 +582,19 @@
 
   // ---------------------------------------------------------------- 背景音乐
   //
-  // 曲目清单在 music/playlist.txt：每行一首，可以是 music/ 文件夹里的音频文件名，
-  // 也可以是 YouTube 链接。音乐和滚动/幻灯片完全独立，暂停播放不影响音乐。
+  // 曲目清单在 music/playlist.txt：每行一项，可以是 music/ 文件夹里的音频文件名、
+  // YouTube 视频或播放列表、B 站视频或收藏夹。音乐和滚动/幻灯片完全独立。
+  // 来源可在设置里选：自动（先 YouTube，打不开时改用 B 站）/ YouTube / B 站。
 
   const music = {
     on: false,
-    tracks: [],
+    all: [],      // 清单里的全部条目
+    bili: {},     // B 站收藏夹展开后的视频（部署时由 scripts/fetch_music.py 生成）
+    tracks: [],   // 当前来源下实际要播放的曲目
+    source: "yt", // 当前实际使用的来源
+    ytFailed: false,
+    biliTimer: 0,
+    watchdog: 0,
     idx: 0,
     fails: 0,     // 连续播放失败的次数，全部失败时停下来，避免无限跳曲
     audio: null,  // 本地文件用 <audio>
@@ -601,6 +608,7 @@
   const musicBtn = $("music");
   const volume = $("volume");
   const ytBox = $("yt");
+  const biliBox = $("bili");
 
   function parseYouTube(u) {
     try {
@@ -611,8 +619,22 @@
       if (!id && url.hostname.endsWith("youtu.be")) id = url.pathname.slice(1);
       if (!id) { const m = url.pathname.match(/\/(?:embed|shorts|live)\/([\w-]{6,})/); if (m) id = m[1]; }
       if (!id && !list) return null;
-      // 带 v= 的链接（即使后面跟着 &list=）按单个视频播放；只有纯播放列表链接才整列播放
-      return { type: "yt", id, list: id ? null : list };
+      // 同时带 v= 和 list= 时：先播整个列表，列表打不开再只播这一个视频
+      return { type: "yt", id, list };
+    } catch { return null; }
+  }
+
+  function parseBili(u) {
+    try {
+      const url = new URL(u);
+      if (!/(^|\.)bilibili\.com$/.test(url.hostname)) return null;
+      const ml = url.pathname.match(/\/(?:list|medialist\/(?:detail|play))\/ml(\d+)/);
+      if (ml) return { type: "bililist", mlid: ml[1] };
+      const fid = url.searchParams.get("fid");
+      if (fid && /favlist/.test(url.pathname)) return { type: "bililist", mlid: fid };
+      const bv = url.pathname.match(/\/video\/(BV\w+)/i);
+      if (bv) return { type: "bili", bvid: bv[1] };
+      return null;
     } catch { return null; }
   }
 
@@ -623,12 +645,14 @@
       if (!line || line.startsWith("#")) continue;
       // 文件名里可以有空格：以音频扩展名为界，后面的是曲名
       const file = line.match(/^(.+?\.(?:mp3|m4a|aac|wav|ogg|oga|opus|flac|webm))(?:\s+(.*))?$/i);
-      const [first, ...rest] = file ? [file[1], file[2] || ""] : line.split(/\s+/);
+      let [first, ...rest] = file ? [file[1], file[2] || ""] : line.split(/\s+/);
       const title = rest.join(" ").trim();
+      // 允许省略 https://（例如直接粘贴 bilibili.com/list/ml123）
+      if (/^(www\.|m\.)?(bilibili\.com|youtube\.com|youtu\.be)\//i.test(first)) first = "https://" + first;
       if (/^https?:/i.test(first)) {
-        const yt = parseYouTube(first);
-        if (yt) out.push({ ...yt, title: title || "YouTube" });
-        else console.warn("只支持 YouTube 链接或 music/ 里的文件：", first);
+        const item = parseYouTube(first) || parseBili(first);
+        if (item) out.push({ ...item, title: title || (item.type === "yt" ? "YouTube" : "B 站") });
+        else console.warn("只支持 YouTube、B 站链接或 music/ 里的文件：", first);
       } else {
         const name = first.replace(/^\.?\/?(docs\/)?(music\/)?/, "");
         out.push({ type: "file", src: "music/" + name.split("/").map(encodeURIComponent).join("/"), title: title || name });
@@ -640,10 +664,43 @@
   async function loadPlaylist() {
     try {
       const res = await fetch("music/playlist.txt", { cache: "no-cache" });
-      if (res.ok) music.tracks = parsePlaylist(await res.text());
+      if (res.ok) music.all = parsePlaylist(await res.text());
     } catch { /* 离线且没有缓存 */ }
-    if (music.idx >= music.tracks.length) music.idx = 0;
-    if (music.tracks.some((t) => t.type === "yt")) loadYouTubeApi();
+    if (music.all.some((t) => t.type === "bililist")) {
+      try {
+        const res = await fetch("music/bilibili.json", { cache: "no-cache" });
+        if (res.ok) music.bili = (await res.json()).lists || {};
+      } catch { /* 还没生成或离线 */ }
+    }
+    if (music.all.some((t) => t.type === "yt")) loadYouTubeApi();
+  }
+
+  const ytTracks = () => music.all.filter((t) => t.type === "yt" || t.type === "file");
+  function biliTracks() {
+    const out = [];
+    for (const t of music.all) {
+      if (t.type === "file" || t.type === "bili") out.push(t);
+      else if (t.type === "bililist") {
+        for (const v of (music.bili[t.mlid] || {}).items || []) {
+          out.push({ type: "bili", bvid: v.bvid, duration: v.duration, title: v.title || t.title });
+        }
+      }
+    }
+    return out;
+  }
+
+  // 按设置选来源；“自动”时 YouTube 可用就用 YouTube，否则用 B 站
+  function chooseTracks() {
+    const want = settings.musicSource || "auto";
+    const yt = ytTracks(), bili = biliTracks();
+    let src = want;
+    if (want === "auto") {
+      const ytUsable = yt.some((t) => t.type === "yt") && !music.ytFailed && navigator.onLine;
+      src = ytUsable || !bili.length ? "yt" : "bili";
+    }
+    if (src !== music.source || music.tracks.length === 0) music.idx = 0;
+    music.source = src;
+    music.tracks = src === "yt" ? yt : bili;
   }
 
   // 提前加载 YouTube 播放器：iPad 要求“点按钮”的那一刻就开始播放，等脚本加载完再播会被拦截
@@ -656,21 +713,21 @@
         events: {
           onReady: () => { music.ytReady = true; applyVolume(); },
           onStateChange: (e) => {
-            if (e.data === YT.PlayerState.PLAYING) music.fails = 0;
+            if (e.data === YT.PlayerState.PLAYING) { music.fails = 0; clearTimeout(music.watchdog); }
             if (e.data !== YT.PlayerState.ENDED || !music.on || music.current?.type !== "yt") return;
             // YouTube 播放列表：播完最后一首才切到清单里的下一项
             const list = music.yt.getPlaylist && music.yt.getPlaylist();
             if (list && list.length && music.yt.getPlaylistIndex() < list.length - 1) return;
             nextTrack();
           },
-          onError: () => { if (music.on && music.current?.type === "yt") trackFailed(); },
+          onError: () => { if (music.on && music.current?.type === "yt") ytFallback(); },
         },
       });
     };
     const s = document.createElement("script");
     s.id = "yt-api";
     s.src = "https://www.youtube.com/iframe_api";
-    s.onerror = () => s.remove();
+    s.onerror = () => { s.remove(); music.ytFailed = true; };
     document.head.appendChild(s);
   }
 
@@ -703,6 +760,33 @@
     if (music.audio) music.audio.pause();
     if (music.ytReady) { try { music.yt.pauseVideo(); } catch { /* 播放器尚未就绪 */ } }
     ytBox.classList.add("off");
+    clearTimeout(music.watchdog);
+    clearTimeout(music.biliTimer);
+    biliBox.replaceChildren();
+    biliBox.classList.add("off");
+  }
+
+  // YouTube：列表打不开就只播链接里的那个视频；都不行才算失败
+  function ytFallback() {
+    const t = music.current;
+    clearTimeout(music.watchdog);
+    if (t && t._mode === "list" && t.id) {
+      t._mode = "video";
+      music.yt.loadVideoById(t.id);
+      armWatchdog();
+    } else {
+      trackFailed();
+    }
+  }
+  // 15 秒还没开始播放（比如列表 ID 无效、网络被拦）就当作失败
+  function armWatchdog() {
+    const attempt = music.attempt;
+    clearTimeout(music.watchdog);
+    music.watchdog = setTimeout(() => {
+      if (attempt !== music.attempt || !music.on) return;
+      const st = music.yt && music.yt.getPlayerState ? music.yt.getPlayerState() : -1;
+      if (st !== 1 && st !== 3) ytFallback();
+    }, 15000);
   }
 
   function playTrack(i) {
@@ -722,12 +806,26 @@
         if (err && err.name === "NotAllowedError") { setMusic(false); toast("浏览器拦截了播放，请再点一次音乐按钮"); }
         else trackFailed();
       });
+    } else if (t.type === "bili") {
+      // B 站没有网页播放接口：嵌入官方播放器，按视频时长切到下一首；音量请用设备按键
+      if (!navigator.onLine) { trackFailed(); return; }
+      const f = document.createElement("iframe");
+      f.src = "https://player.bilibili.com/player.html?isOutside=true&autoplay=1&danmaku=0&high_quality=1&bvid=" + encodeURIComponent(t.bvid);
+      f.allow = "autoplay; encrypted-media; fullscreen; picture-in-picture";
+      f.referrerPolicy = "no-referrer-when-downgrade";
+      biliBox.replaceChildren(f);
+      biliBox.classList.remove("off");
+      const secs = t.duration > 0 ? t.duration + 3 : 300;
+      music.biliTimer = setTimeout(() => { if (music.on) nextTrack(); }, secs * 1000);
+      music.fails = 0;
     } else {
       if (!music.ytReady || !navigator.onLine) { trackFailed(); return; }
       ytBox.classList.remove("off");
       applyVolume();
+      t._mode = t.list ? "list" : "video";
       if (t.list) music.yt.loadPlaylist({ list: t.list, listType: "playlist", index: 0 });
       else music.yt.loadVideoById(t.id);
+      armWatchdog();
     }
     musicBtn.title = "正在播放：" + t.title;
     $("nowPlaying").textContent = t.title;
@@ -741,18 +839,32 @@
     failedAttempt = music.attempt;
     music.fails += 1;
     if (music.fails >= music.tracks.length) {
+      // 自动模式：YouTube 全部播不了（比如在内地打不开），改用 B 站
+      if ((settings.musicSource || "auto") === "auto" && music.source === "yt" && biliTracks().length) {
+        music.ytFailed = true;
+        chooseTracks();
+        music.fails = 0;
+        toast("YouTube 无法播放，已改用 B 站");
+        setTimeout(() => playTrack(0), 300);
+        return;
+      }
       setMusic(false);
-      toast(navigator.onLine
-        ? "曲子都无法播放，请检查 music/playlist.txt"
-        : "离线时只能播放 music/ 文件夹里的音频文件");
+      toast(!navigator.onLine
+        ? "离线时只能播放 music/ 文件夹里的音频文件"
+        : music.source === "yt" && biliTracks().length
+          ? "YouTube 无法播放，可在设置里把音乐来源改成 B站"
+          : "曲子都无法播放，请检查 music/playlist.txt");
       return;
     }
     setTimeout(nextTrack, 300);
   }
 
   function setMusic(on) {
+    if (on) chooseTracks();
     if (on && !music.tracks.length) {
-      toast("还没有曲子：请在 music/playlist.txt 里添加（见 README）");
+      toast(music.all.length
+        ? (music.source === "bili" ? "B 站曲目还没准备好（收藏夹需要公开），请稍后再试" : "这个来源下没有曲子，请在设置里换一个来源")
+        : "还没有曲子：请在 music/playlist.txt 里添加（见 README）");
       on = false;
     }
     music.on = on;
@@ -790,6 +902,20 @@
   $("clockToggle").addEventListener("change", (e) => { settings.clock = e.target.checked; save(); tickClock(); relayout(); });
   $("nightToggle").addEventListener("change", (e) => { settings.night = e.target.checked; save(); tickClock(); });
   musicBtn.addEventListener("click", () => setMusic(!music.on));
+  function applyMusicSource() {
+    for (const b of document.querySelectorAll("[data-src]")) {
+      b.setAttribute("aria-pressed", String(b.dataset.src === (settings.musicSource || "auto")));
+    }
+  }
+  for (const b of document.querySelectorAll("[data-src]")) {
+    b.addEventListener("click", () => {
+      settings.musicSource = b.dataset.src;
+      save();
+      applyMusicSource();
+      music.ytFailed = false; // 用户手动换来源时重新尝试
+      if (music.on) { stopCurrent(); music.idx = 0; setMusic(true); }
+    });
+  }
   $("musicToggle").addEventListener("change", (e) => setMusic(e.target.checked));
   $("musicNext").addEventListener("click", () => { music.fails = 0; nextTrack(); });
   volume.addEventListener("input", () => {
@@ -847,6 +973,7 @@
   async function start() {
     applyTheme();
     $("clockToggle").checked = settings.clock;
+    applyMusicSource();
     $("nightToggle").checked = settings.night;
     tickClock();
     setInterval(tickClock, 15000);
