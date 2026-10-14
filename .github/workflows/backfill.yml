@@ -1,0 +1,75 @@
+name: 补抓历史微博
+
+# 手动运行：从最新一路往回翻，补齐指定日期之后还没保存的微博。
+# 每次最多新增若干条，没补完就再运行一次，会接着上次的进度。
+on:
+  workflow_dispatch:
+    inputs:
+      until:
+        description: "补到哪一天（YYYY-MM-DD）"
+        default: "2014-01-01"
+      max_new:
+        description: "这次最多新增多少条"
+        default: "300"
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: daily-wisdom
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装图片压缩工具
+        run: pip install --quiet pillow
+
+      - name: 抓取微博
+        id: fetch
+        env:
+          WEIBO_COOKIE: ${{ secrets.WEIBO_COOKIE }}
+        run: python3 scripts/fetch_weibo.py --backfill-until "${{ github.event.inputs.until }}" --max-new "${{ github.event.inputs.max_new }}"
+
+      # 即使抓取中途出错，也把已经成功下载的内容提交，避免白跑
+      - name: 提交新内容
+        if: always() && steps.fetch.outcome != 'skipped'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/data docs/images
+          if git diff --cached --quiet; then
+            echo "没有新内容。"
+          else
+            git commit -m "补抓历史：$(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M')"
+            git pull --rebase origin "$GITHUB_REF_NAME"
+            git push
+          fi
+
+  deploy:
+    needs: fetch
+    if: always()
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+      - id: deployment
+        uses: actions/deploy-pages@v4
