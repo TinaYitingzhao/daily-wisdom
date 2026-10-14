@@ -5,6 +5,13 @@
   --line: #e2ddd1;
   --panel: rgba(246, 243, 236, 0.92);
   --accent: #9a6b3c;
+  --glass: rgba(250, 248, 243, 0.72);
+  --glass-line: rgba(0, 0, 0, 0.1);
+  --glass-hover: rgba(0, 0, 0, 0.06);
+  --group: rgba(255, 255, 255, 0.7);
+  --seg: rgba(118, 118, 128, 0.14);
+  --seg-on: #fff;
+  --tint-amt: 16%;
   --font: "Noto Serif SC", "Songti SC", "STSong", "Source Han Serif SC", "Noto Serif CJK SC", serif;
   --size: clamp(1.25rem, 0.95rem + 1.5vw, 2.1rem);
   color-scheme: light;
@@ -18,6 +25,13 @@
     --line: #2d2b27;
     --panel: rgba(28, 27, 24, 0.92);
     --accent: #c79b6a;
+    --glass: rgba(30, 29, 27, 0.7);
+    --glass-line: rgba(255, 255, 255, 0.12);
+    --glass-hover: rgba(255, 255, 255, 0.08);
+    --group: rgba(255, 255, 255, 0.07);
+    --seg: rgba(118, 118, 128, 0.32);
+    --seg-on: #636366;
+    --tint-amt: 22%;
     color-scheme: dark;
   }
 }
@@ -27,7 +41,14 @@
   --muted: #8b8577;
   --line: #2d2b27;
   --panel: rgba(28, 27, 24, 0.92);
-  --accent: #c79b6a;
+    --accent: #c79b6a;
+  --glass: rgba(30, 29, 27, 0.7);
+  --glass-line: rgba(255, 255, 255, 0.12);
+  --glass-hover: rgba(255, 255, 255, 0.08);
+  --group: rgba(255, 255, 255, 0.07);
+  --seg: rgba(118, 118, 128, 0.32);
+  --seg-on: #636366;
+  --tint-amt: 22%;
   color-scheme: dark;
 }
 
@@ -198,7 +219,7 @@ img { display: block; max-width: 100%; height: auto; }
 
 .count {
   position: absolute;
-  top: max(16px, env(safe-area-inset-top));
+  bottom: max(16px, env(safe-area-inset-bottom));
   left: 18px;
   padding: 3px 10px;
   border-radius: 99px;
@@ -210,9 +231,11 @@ img { display: block; max-width: 100%; height: auto; }
   backdrop-filter: blur(8px);
 }
 
-/* 文字区 */
+/* 文字区：底色带一点图片的主色调（参考 Apple Music） */
 .copy {
   position: relative;
+  background-color: color-mix(in srgb, var(--tint, var(--bg)) var(--tint-amt), var(--bg));
+  transition: background-color 1.8s ease;
   display: flex;
   align-items: center;
   min-height: 0;
@@ -267,6 +290,31 @@ img { display: block; max-width: 100%; height: auto; }
   transition: opacity 1.4s ease 0.35s, transform 1.4s ease 0.35s;
 }
 .sl.in .text { opacity: 1; transform: none; }
+.sl.in .text.turning { opacity: 0; transform: translateY(-6px); transition-duration: 0.6s; transition-delay: 0s; }
+
+.foot {
+  position: absolute;
+  left: 5vw;
+  bottom: max(3vh, calc(env(safe-area-inset-bottom) + 10px));
+  color: var(--muted);
+  font: 12px/1 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+/* 没有配图的页面：一个很淡的大引号 */
+.sl.text-only .copy-inner::before {
+  content: "\201C";
+  display: block;
+  height: 0.55em;
+  margin-bottom: 0.25em;
+  color: var(--accent);
+  font-size: 7rem;
+  line-height: 1;
+  opacity: 0.18;
+  text-align: center;
+}
 
 /* 文字区左上角的头像和昵称 */
 .who {
@@ -310,6 +358,23 @@ img { display: block; max-width: 100%; height: auto; }
   .sl .date { margin-bottom: 1rem; }
   .sl .day { font-size: 2.6rem; }
 }
+/* 横屏留出右下角给时钟 */
+@media (min-aspect-ratio: 1/1) {
+  body.has-clock .copy { padding-bottom: max(16vh, calc(env(safe-area-inset-bottom) + 130px)); }
+}
+/* 竖屏：时钟放在图片右上角，白字加阴影 */
+@media (max-aspect-ratio: 1/1) {
+  .clock { top: max(3vh, calc(env(safe-area-inset-top) + 12px)); bottom: auto; right: max(5vw, 16px); }
+  .foot { left: max(7vw, 20px); }
+  body.mode-slides.img-top .clock { color: #fff; text-shadow: 0 1px 14px rgba(0, 0, 0, 0.45); }
+  body.mode-slides.img-top .clock-date { color: rgba(255, 255, 255, 0.85); }
+  .sl .count { bottom: 12px; }
+}
+@media (max-width: 600px) {
+  .clock-time { font-size: 1.5rem; }
+  .clock-date { margin-top: 4px; font-size: 0.66rem; }
+}
+
 /* 手机竖屏：图片区再小一点，给文字留空间 */
 @media (max-aspect-ratio: 1/1) and (max-width: 600px) {
   .sl { grid-template-rows: 42fr 58fr; }
@@ -352,85 +417,222 @@ img { display: block; max-width: 100%; height: auto; }
 }
 .status[hidden] { display: none; }
 
-/* ---------- 控制栏 ---------- */
+/* ---------- 控制栏：平时隐藏，轻点出现（参考 Apple TV 播放控制） ---------- */
 
 .controls {
   position: fixed;
   left: 50%;
-  bottom: max(14px, env(safe-area-inset-bottom));
+  bottom: max(20px, calc(env(safe-area-inset-bottom) + 8px));
   transform: translateX(-50%);
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  justify-content: center;
-  gap: 6px 6px;
-  width: max-content;
-  max-width: calc(100vw - 24px);
-  padding: 6px 10px;
-  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  gap: 4px;
+  padding: 6px;
   border-radius: 999px;
-  background: var(--panel);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.06);
-  -webkit-backdrop-filter: blur(18px) saturate(1.4);
-  backdrop-filter: blur(18px) saturate(1.4);
+  background: var(--glass);
+  border: 0.5px solid var(--glass-line);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18), 0 1px 3px rgba(0, 0, 0, 0.08);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
+  backdrop-filter: blur(24px) saturate(1.6);
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
-  font-size: 15px;
-  line-height: 1;
-  transition: opacity 0.5s ease, transform 0.5s ease;
+  transition: opacity 0.45s ease, transform 0.45s cubic-bezier(.2, .8, .2, 1);
   z-index: 10;
 }
 .controls.hide {
   opacity: 0;
-  transform: translate(-50%, 12px);
+  transform: translate(-50%, 16px) scale(0.98);
   pointer-events: none;
 }
-
-.controls button {
-  min-width: 44px;
-  height: 40px;
-  padding: 0 12px;
+.ctl {
+  display: inline-grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
   border: 0;
-  border-radius: 999px;
+  border-radius: 50%;
   background: transparent;
   color: var(--fg);
-  font: inherit;
   cursor: pointer;
+  transition: background 0.2s, transform 0.15s;
 }
-.controls button:hover { background: var(--line); }
-.controls .icon { display: inline-flex; align-items: center; justify-content: center; padding: 0 10px; }
-.controls svg { display: block; }
+.ctl:hover { background: var(--glass-hover); }
+.ctl:active { transform: scale(0.92); }
+.ctl svg { display: block; }
+.ctl-main { width: 56px; height: 56px; background: var(--fg); color: var(--bg); }
+.ctl-main:hover { background: var(--fg); opacity: 0.9; }
+.ctl-small { width: 42px; height: 42px; color: var(--muted); }
+.ctl-sep { width: 1px; height: 22px; margin: 0 4px; background: var(--glass-line); }
+#music[aria-pressed="true"] { color: var(--accent); }
+body:not(.mode-slides) .slides-only { display: none; }
+
+/* ---------- 设置面板（参考 iOS 设置的分组样式） ---------- */
+
+.sheet {
+  position: fixed;
+  left: 50%;
+  bottom: calc(max(20px, calc(env(safe-area-inset-bottom) + 8px)) + 80px);
+  transform: translateX(-50%);
+  width: min(380px, calc(100vw - 24px));
+  max-height: calc(100dvh - 140px);
+  overflow-y: auto;
+  padding: 12px;
+  border-radius: 22px;
+  background: var(--glass);
+  border: 0.5px solid var(--glass-line);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.25);
+  -webkit-backdrop-filter: blur(30px) saturate(1.6);
+  backdrop-filter: blur(30px) saturate(1.6);
+  font: 15px/1.35 -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+  color: var(--fg);
+  z-index: 12;
+  animation: sheet-in 0.32s cubic-bezier(.2, .8, .2, 1);
+}
+.sheet[hidden] { display: none; }
+@keyframes sheet-in {
+  from { opacity: 0; transform: translate(-50%, 12px) scale(0.98); }
+}
+.group {
+  border-radius: 14px;
+  background: var(--group);
+  overflow: hidden;
+}
+.group + .group { margin-top: 10px; }
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 6px 14px;
+}
+.row[hidden] { display: none; }
+.row + .row { border-top: 0.5px solid var(--glass-line); }
+.row .label { flex: 1; display: flex; flex-direction: column; }
+.row .label small { color: var(--muted); font-size: 12px; }
+.row input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent); }
+.row .value { min-width: 3.6em; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.row .now { min-width: 0; max-width: 7em; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; }
 
 .seg {
   display: flex;
   padding: 2px;
+  border-radius: 9px;
+  background: var(--seg);
+}
+.seg button {
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.seg button[aria-pressed="true"] { background: var(--seg-on); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12); font-weight: 600; }
+
+/* iOS 风格开关 */
+.switch {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex: none;
+  width: 51px;
+  height: 31px;
+  margin: 0;
   border-radius: 999px;
-  background: var(--line);
+  background: var(--seg);
+  cursor: pointer;
+  transition: background 0.25s;
 }
-.seg button { height: 36px; }
-.seg button[aria-pressed="true"] { background: var(--bg); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); }
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  transition: transform 0.25s cubic-bezier(.2, .8, .2, 1);
+}
+.switch:checked { background: #34c759; }
+.switch:checked::after { transform: translateX(20px); }
 
-.speed {
+.pill-btn, .sheet-btn {
+  border: 0;
+  border-radius: 999px;
+  background: var(--seg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.pill-btn { height: 30px; padding: 0 12px; flex: none; }
+.sheet-btn { display: block; width: 100%; height: 44px; margin-top: 10px; border-radius: 14px; background: var(--group); font-size: 15px; }
+.sheet-btn[hidden] { display: none; }
+
+/* ---------- 相框时钟（参考 iPhone 待机显示） ---------- */
+
+.clock {
+  position: fixed;
+  right: max(5.5vw, calc(env(safe-area-inset-right) + 16px));
+  bottom: max(5vh, calc(env(safe-area-inset-bottom) + 16px));
   display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--muted);
+  flex-direction: column;
+  align-items: flex-end;
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif;
+  pointer-events: none;
+  z-index: 5;
+  transition: color 1s;
 }
-.speed input { width: 120px; accent-color: var(--accent); }
-.speed output { min-width: 3.2em; color: var(--fg); font-variant-numeric: tabular-nums; }
+.clock[hidden] { display: none; }
+.clock-time {
+  font-size: 2.4rem;
+  font-weight: 200;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.clock-date { margin-top: 6px; font-size: 0.78rem; color: var(--muted); letter-spacing: 0.06em; }
 
-body:not(.mode-slides) .slides-only { display: none; }
+/* ---------- 夜间自动变暗 ---------- */
 
-/* ---------- 背景音乐 ---------- */
-
-.music, .music-extra { display: inline-flex; align-items: center; gap: 4px; }
-.music-extra[hidden] { display: none; }
-#music[aria-pressed="true"] { color: var(--accent); }
-#volume { width: 90px; accent-color: var(--accent); }
+/* 夜里自动换成深色配色，再整体轻微调暗、偏暖 */
+body.is-night {
+  --bg: #121110;
+  --fg: #cfc7b8;
+  --muted: #7d776b;
+  --line: #2a2825;
+  --accent: #b88d60;
+  --glass: rgba(28, 27, 25, 0.72);
+  --glass-line: rgba(255, 255, 255, 0.1);
+  --glass-hover: rgba(255, 255, 255, 0.08);
+  --group: rgba(255, 255, 255, 0.06);
+  --seg: rgba(118, 118, 128, 0.32);
+  --seg-on: #5a5a5e;
+  --tint-amt: 14%;
+  background: var(--bg);
+  color: var(--fg);
+}
+.night {
+  position: fixed;
+  inset: 0;
+  background: rgba(25, 12, 0, 0.32);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 3s ease;
+  z-index: 8;
+}
+body.is-night .night { opacity: 1; }
 
 .yt {
   position: fixed;
   top: max(12px, env(safe-area-inset-top));
-  right: max(12px, env(safe-area-inset-right));
+  left: max(12px, env(safe-area-inset-left));
   width: 192px;
   aspect-ratio: 16 / 9;
   border-radius: 8px;
@@ -439,7 +641,7 @@ body:not(.mode-slides) .slides-only { display: none; }
   z-index: 9;
 }
 /* 不播放 YouTube 时移到屏幕外（不能用 display:none，否则播放器无法提前初始化） */
-.yt.off { left: -9999px; right: auto; opacity: 0; pointer-events: none; }
+.yt.off { left: -9999px; opacity: 0; pointer-events: none; }
 .yt iframe { display: block; width: 100%; height: 100%; border: 0; }
 
 .toast {
@@ -462,14 +664,11 @@ body:not(.mode-slides) .slides-only { display: none; }
 .toast[hidden] { display: none; }
 
 @media (max-width: 520px) {
-  .controls { gap: 6px; padding: 6px 8px; }
-  .speed input { width: 90px; }
-  #volume { width: 70px; }
-  .controls button { min-width: 38px; height: 36px; padding: 0 8px; }
-  .seg button { height: 32px; padding: 0 10px; }
+  .ctl { width: 44px; height: 44px; }
+  .ctl-main { width: 52px; height: 52px; }
+  .ctl-small { width: 38px; height: 38px; }
   .yt { width: 144px; }
   .toast { bottom: calc(max(14px, env(safe-area-inset-bottom)) + 120px); }
-  .speed #speedLabel { display: none; }
   .post { padding-top: 1.8em; padding-bottom: 1.8em; }
 }
 
