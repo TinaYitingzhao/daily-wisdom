@@ -197,9 +197,13 @@ def shrink(data):
 FALLBACK_SIZES = ["large", "orj1080", "mw1024", "mw690", "bmiddle", "orj360"]
 
 
+def is_weibo_img(url):
+    return bool(re.match(r"https?://[^/]*sinaimg\.cn/", url))
+
+
 def size_variants(url):
     m = re.match(r"(https?://[^/]+/)([^/]+)(/.+)$", url)
-    if not m:
+    if not m or not is_weibo_img(url):
         return [url]
     head, size, tail = m.groups()
     return [url] + [head + s + tail for s in FALLBACK_SIZES if s != size]
@@ -301,7 +305,15 @@ def build_post(mblog, cookie):
     images = []
     for i, url in enumerate(urls, 1):
         name = f"{mid}_{i}{ext_of(url)}"
-        download_image(url, IMAGES_DIR / name)
+        try:
+            download_image(url, IMAGES_DIR / name)
+        except FetchError as e:
+            # 早年视频微博的封面放在土豆、56 等第三方网站，这些网站已关闭，图片永远拿不到：
+            # 跳过这张图，照常保存文字。微博自己图床的图片失败仍然报错，下次重试。
+            if is_weibo_img(url):
+                raise
+            log(f"  （跳过已失效的第三方图片：{url}）")
+            continue
         images.append(f"images/{name}")
         time.sleep(0.3)
 
