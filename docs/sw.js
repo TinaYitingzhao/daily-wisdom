@@ -3,7 +3,7 @@
 // - 图片、音乐文件：缓存优先（文件名不会变内容，下载过一次就一直可用）
 // 媒体单独放一个缓存，网站代码更新时不会把已经存好的图片和音乐清掉。
 
-const SHELL_CACHE = "dw-shell-v3";
+const SHELL_CACHE = "dw-shell-v4";
 const MEDIA_CACHE = "dw-media-v1";
 const SHELL = [
   "./", "index.html", "style.css", "app.js", "manifest.webmanifest",
@@ -71,7 +71,9 @@ self.addEventListener("message", (e) => {
 async function networkFirst(req) {
   const c = await caches.open(SHELL_CACHE);
   try {
-    const res = await withTimeout(fetch(req), NETWORK_TIMEOUT_MS);
+    // cache: "no-cache"：绕过浏览器的 HTTP 缓存（GitHub Pages 默认让浏览器缓存 10 分钟），
+    // 每次都向服务器确认是否有新版本；文件没变时服务器只回一个很小的 304
+    const res = await withTimeout(fetch(req.url, { cache: "no-cache", credentials: "same-origin" }), NETWORK_TIMEOUT_MS);
     if (res.ok) await c.put(stripQuery(req), res.clone());
     return res;
   } catch {
