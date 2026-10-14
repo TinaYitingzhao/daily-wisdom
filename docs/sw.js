@@ -3,7 +3,7 @@
 // - 图片、音乐文件：缓存优先（文件名不会变内容，下载过一次就一直可用）
 // 媒体单独放一个缓存，网站代码更新时不会把已经存好的图片和音乐清掉。
 
-const SHELL_CACHE = "dw-shell-v2";
+const SHELL_CACHE = "dw-shell-v3";
 const MEDIA_CACHE = "dw-media-v1";
 const SHELL = [
   "./", "index.html", "style.css", "app.js", "manifest.webmanifest",
@@ -34,7 +34,14 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   const req = e.request;
   const url = new URL(req.url);
-  if (req.method !== "GET" || url.origin !== location.origin) return;
+  if (req.method !== "GET") return;
+
+  // 网页字体（Google Fonts）：缓存起来，离线时也用同样的字体
+  if (url.hostname === "fonts.googleapis.com" || url.hostname === "fonts.gstatic.com") {
+    e.respondWith(staleWhileRevalidate(req));
+    return;
+  }
+  if (url.origin !== location.origin) return;
 
   if (url.pathname.includes("/images/")) {
     e.respondWith(cacheFirst(req));
@@ -119,6 +126,16 @@ async function audio(req) {
       "Accept-Ranges": "bytes",
     },
   });
+}
+
+async function staleWhileRevalidate(req) {
+  const c = await caches.open(MEDIA_CACHE);
+  const hit = await c.match(req);
+  const update = fetch(req).then((res) => {
+    if (res.ok || res.type === "opaque") c.put(req, res.clone());
+    return res;
+  }).catch(() => null);
+  return hit || (await update) || Response.error();
 }
 
 function stripQuery(req) {
