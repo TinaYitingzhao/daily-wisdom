@@ -12,6 +12,7 @@
 """
 
 import argparse
+import hashlib
 import html
 import json
 import os
@@ -29,6 +30,7 @@ UID = "1769787285"  # 索达吉堪布
 ROOT = Path(__file__).resolve().parent.parent
 DOCS = ROOT / "docs"
 POSTS_FILE = DOCS / "data" / "posts.json"
+PROFILE_FILE = DOCS / "data" / "profile.json"
 IMAGES_DIR = DOCS / "images"
 
 API = "https://m.weibo.cn/api/container/getIndex"
@@ -184,6 +186,55 @@ def ext_of(url):
     return "." + (m.group(1).lower().replace("jpeg", "jpg") if m else "jpg")
 
 
+# ---------------------------------------------------------------- 头像与昵称
+
+def find_user(mblogs, cookie):
+    """优先用微博自带的作者信息；拿不到再单独请求一次用户资料。"""
+    for m in mblogs:
+        u = m.get("user") or {}
+        if str(u.get("id")) == UID and (u.get("avatar_hd") or u.get("profile_image_url")):
+            return u
+    data = get_json(f"{API}?type=uid&value={UID}", cookie)
+    check_ok(data)
+    u = data.get("data", {}).get("userInfo") or {}
+    if not (u.get("avatar_hd") or u.get("profile_image_url")):
+        raise FetchError("没有拿到账号的头像信息，接口结构可能变化。")
+    return u
+
+
+def update_profile(user):
+    """下载头像，和上次保存的比较；头像或昵称变了才写文件，避免每天产生无意义的提交。
+
+    头像文件名带内容哈希，换头像后浏览器和离线缓存会拿到新文件，而不是继续显示旧图。
+    """
+    url = user.get("avatar_hd") or user.get("profile_image_url")
+    name = user.get("screen_name") or ""
+    data = http_get(url, None, referer=IMG_REFERER, accept="image/*")
+    if len(data) < 100:
+        raise FetchError(f"头像内容异常（{len(data)} 字节）：{url}")
+    digest = hashlib.sha1(data).hexdigest()[:10]
+    filename = f"avatar_{digest}{ext_of(url)}"
+
+    old = json.loads(PROFILE_FILE.read_text("utf-8")) if PROFILE_FILE.exists() else {}
+    if old.get("avatar") == f"images/{filename}" and old.get("name") == name:
+        log("头像和昵称没有变化。")
+        return
+
+    (IMAGES_DIR / filename).write_bytes(data)
+    for f in IMAGES_DIR.glob("avatar_*"):
+        if f.name != filename:
+            f.unlink()
+    profile = {
+        "name": name,
+        "avatar": f"images/{filename}",
+        "url": f"https://m.weibo.cn/u/{UID}",
+        "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+    }
+    PROFILE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    PROFILE_FILE.write_text(json.dumps(profile, ensure_ascii=False, indent=1) + "\n", "utf-8")
+    log(f"{'更新' if old else '保存'}了头像和昵称：{name}")
+
+
 # ---------------------------------------------------------------- 主流程
 
 def build_post(mblog, cookie):
@@ -259,6 +310,12 @@ def run(cookie, initial):
         mblogs = [c["mblog"] for c in cards if c.get("card_type") == 9 and c.get("mblog")]
         if page == 1 and not mblogs:
             raise FetchError("第一页没有任何微博，接口结构可能变化或被限制。")
+        if page == 1:
+            try:
+                update_profile(find_user(mblogs, cookie))
+            except FetchError as e:
+                errors.append(f"头像：{e}")
+                log(f"  ✗ 头像更新失败：{e}")
 
         page_new = 0
         for mblog in mblogs:

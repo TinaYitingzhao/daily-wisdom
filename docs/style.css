@@ -57,13 +57,54 @@ img { display: block; max-width: 100%; height: auto; }
   border-bottom: 1px solid var(--line);
 }
 
-.post time {
-  display: block;
+/* ---------- 顶部头像与昵称 ---------- */
+
+.masthead {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  padding: max(3.2rem, calc(env(safe-area-inset-top) + 2rem)) 16px 0.4rem;
+  text-align: center;
+}
+.masthead[hidden], body.mode-slides .masthead { display: none; }
+.masthead .avatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--line);
+  box-shadow: 0 0 0 1px var(--line);
+}
+.mast-name {
+  margin: 0;
+  font-size: 0.8em;
+  font-weight: normal;
+  letter-spacing: 0.18em;
+}
+
+/* ---------- 卡片头部：小头像 · 昵称 · 时间 ---------- */
+
+.post .meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
   margin-bottom: 0.9em;
   color: var(--muted);
   font-size: 0.62em;
+  line-height: 1.5;
   letter-spacing: 0.08em;
 }
+.avatar-sm {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--line);
+  flex: none;
+}
+.post .meta .name { color: var(--fg); }
 
 .post .text {
   margin: 0;
@@ -90,6 +131,7 @@ img { display: block; max-width: 100%; height: auto; }
 
 .feed { padding-top: env(safe-area-inset-top); padding-bottom: 40vh; }
 .feed .post:first-child { padding-top: 3em; }
+.masthead:not([hidden]) + .feed .post:first-child { padding-top: 1.6em; }
 
 /* ---------- 幻灯片 ---------- */
 
@@ -212,9 +254,53 @@ img { display: block; max-width: 100%; height: auto; }
 
 body:not(.mode-slides) .slides-only { display: none; }
 
+/* ---------- 背景音乐 ---------- */
+
+.music, .music-extra { display: inline-flex; align-items: center; gap: 4px; }
+.music-extra[hidden] { display: none; }
+#music[aria-pressed="true"] { color: var(--accent); }
+#volume { width: 90px; accent-color: var(--accent); }
+
+.yt {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  width: 192px;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+  z-index: 9;
+}
+/* 不播放 YouTube 时移到屏幕外（不能用 display:none，否则播放器无法提前初始化） */
+.yt.off { left: -9999px; right: auto; opacity: 0; pointer-events: none; }
+.yt iframe { display: block; width: 100%; height: 100%; border: 0; }
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(max(14px, env(safe-area-inset-bottom)) + 76px);
+  transform: translateX(-50%);
+  max-width: calc(100vw - 32px);
+  margin: 0;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: var(--fg);
+  color: var(--bg);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  text-align: center;
+  z-index: 11;
+}
+.toast[hidden] { display: none; }
+
 @media (max-width: 520px) {
   .controls { gap: 6px; padding: 6px 8px; }
   .speed input { width: 90px; }
+  #volume { width: 70px; }
+  .yt { width: 144px; }
+  .toast { bottom: calc(max(14px, env(safe-area-inset-bottom)) + 120px); }
   .speed #speedLabel { display: none; }
   .post { padding-top: 1.8em; padding-bottom: 1.8em; }
 }

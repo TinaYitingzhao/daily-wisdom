@@ -17,6 +17,11 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <header id="masthead" class="masthead" hidden>
+    <img id="mastAvatar" class="avatar" alt="" width="72" height="72">
+    <h1 id="mastName" class="mast-name"></h1>
+  </header>
+
   <main id="feed" class="feed" aria-live="off"></main>
 
   <section id="slides" class="slides" hidden>
@@ -25,6 +30,10 @@
   </section>
 
   <p id="status" class="status">正在加载…</p>
+  <p id="toast" class="toast" role="status" aria-live="polite" hidden></p>
+
+  <!-- YouTube 曲目的播放器（播放 YouTube 时显示在右上角，按 YouTube 的要求不能隐藏） -->
+  <div id="yt" class="yt off" aria-hidden="true"><div id="ytPlayer"></div></div>
 
   <nav id="controls" class="controls" aria-label="播放控制">
     <div class="seg" role="group" aria-label="模式">
@@ -41,6 +50,14 @@
       <input id="speed" type="range" min="1" max="10" step="1">
       <output id="speedValue"></output>
     </label>
+
+    <span class="music">
+      <button id="music" class="icon" type="button" aria-label="背景音乐：关" aria-pressed="false"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg></button>
+      <span id="musicExtra" class="music-extra" hidden>
+        <button id="musicNext" class="icon" type="button" aria-label="下一首"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 5l9 7-9 7zM18 5v14"/></svg></button>
+        <input id="volume" type="range" min="0" max="100" step="5" aria-label="音量">
+      </span>
+    </span>
 
     <button id="theme" class="icon" type="button" aria-label="切换深浅色"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/></svg></button>
     <button id="fullscreen" class="icon" type="button" aria-label="全屏"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
