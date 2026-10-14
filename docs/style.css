@@ -5,7 +5,7 @@
   --line: #e2ddd1;
   --panel: rgba(246, 243, 236, 0.92);
   --accent: #9a6b3c;
-  --font: "Songti SC", "STSong", "Noto Serif SC", "Source Han Serif SC", "Noto Serif CJK SC", serif;
+  --font: "Noto Serif SC", "Songti SC", "STSong", "Source Han Serif SC", "Noto Serif CJK SC", serif;
   --size: clamp(1.25rem, 0.95rem + 1.5vw, 2.1rem);
   color-scheme: light;
 }
@@ -133,42 +133,206 @@ img { display: block; max-width: 100%; height: auto; }
 .feed .post:first-child { padding-top: 3em; }
 .masthead:not([hidden]) + .feed .post:first-child { padding-top: 1.6em; }
 
-/* ---------- 幻灯片 ---------- */
+/* ---------- 幻灯片 ----------
+   横屏：左图右文；竖屏：上图下文；没有配图：文字居中成页。
+   图片完整显示（不裁切），空白处用同一张图的模糊放大版铺底。 */
 
 .slides {
   position: fixed;
   inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   overflow: hidden;
+  background: var(--bg);
 }
 .slides[hidden] { display: none; }
 
-.slide {
+.stage { position: absolute; inset: 0; }
+
+.sl {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 57fr 43fr;
+  opacity: 0;
+  transition: opacity 1.4s ease;
+}
+.sl.in { opacity: 1; }
+.sl.out { opacity: 0; transition-duration: 1.2s; }
+
+/* 图片区 */
+.media {
+  position: relative;
+  overflow: hidden;
+  background: #0d0c0b;
+}
+.backdrop {
+  position: absolute;
+  inset: -12%;
+  width: 124%;
+  height: 124%;
+  max-width: none;
+  object-fit: cover;
+  filter: blur(48px) saturate(1.15) brightness(0.62);
+  transform: scale(1.05);
+  transition: opacity 1.6s ease;
+}
+.photo {
+  position: absolute;
+  inset: 6%;
+  width: 88%;
+  height: 88%;
+  max-width: none;
+  object-fit: contain;
+  opacity: 0;
+  filter: drop-shadow(0 24px 48px rgba(0, 0, 0, 0.45));
+  transition: opacity 1.6s ease;
+}
+.photo.on {
+  opacity: 1;
+  animation: kenburns var(--kb, 20s) ease-out both;
+}
+@keyframes kenburns {
+  from { transform: scale(1); }
+  to   { transform: scale(1.06); }
+}
+.slides.paused .photo.on { animation-play-state: paused; }
+
+.count {
+  position: absolute;
+  top: max(16px, env(safe-area-inset-top));
+  left: 18px;
+  padding: 3px 10px;
+  border-radius: 99px;
+  background: rgba(0, 0, 0, 0.35);
+  color: rgba(255, 255, 255, 0.85);
+  font: 500 12px/1.6 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  letter-spacing: 0.08em;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+/* 文字区 */
+.copy {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 0;
+  padding: max(6vh, env(safe-area-inset-top)) max(5.5vw, env(safe-area-inset-right)) max(8vh, calc(env(safe-area-inset-bottom) + 40px)) 5vw;
+}
+.copy-inner {
   width: 100%;
   max-height: 100%;
   overflow-y: auto;
-  padding: max(2em, env(safe-area-inset-top)) 0 4em;
-  transition: opacity 0.9s ease;
   scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 1.2em, #000 calc(100% - 1.6em), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 1.2em, #000 calc(100% - 1.6em), transparent 100%);
+  padding: 1.2em 0 1.6em;
 }
-.slide::-webkit-scrollbar { display: none; }
-.slide.fading { opacity: 0; }
-.slide .post { border-bottom: 0; padding-top: 0; padding-bottom: 0; }
-.slide .pics.n1 img { max-height: 52vh; }
-.slide .pics:not(.n1) { max-width: min(100%, 70vh); margin-left: auto; margin-right: auto; }
+.copy-inner::-webkit-scrollbar { display: none; }
+
+.sl .date {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  margin-bottom: 1.6rem;
+  color: var(--muted);
+}
+.sl .day {
+  font-size: 3.4rem;
+  font-weight: 300;
+  line-height: 1;
+  color: var(--fg);
+  font-variant-numeric: lining-nums;
+}
+.sl .dmeta {
+  padding-left: 0.8rem;
+  border-left: 1px solid var(--line);
+  font-size: 0.82rem;
+  line-height: 1.7;
+  letter-spacing: 0.12em;
+}
+
+.sl .text {
+  margin: 0;
+  font-size: var(--fs, 1.6rem);
+  font-weight: 400;
+  line-height: 1.95;
+  letter-spacing: 0.04em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  text-align: start;
+  line-break: strict;
+  hanging-punctuation: allow-end;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 1.4s ease 0.35s, transform 1.4s ease 0.35s;
+}
+.sl.in .text { opacity: 1; transform: none; }
+
+.byline {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 2rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+  letter-spacing: 0.16em;
+}
+.byline::before {
+  content: "";
+  width: 1.6rem;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.6;
+}
+.byline img {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+/* 没有配图：文字居中成页 */
+.sl.text-only { grid-template-columns: 1fr; }
+.sl.text-only .media { display: none; }
+.sl.text-only .copy { justify-content: center; padding-left: max(8vw, 24px); padding-right: max(8vw, 24px); }
+.sl.text-only .copy-inner { max-width: 30em; }
+.sl.text-only .date { justify-content: center; }
+.sl.text-only.short .text { text-align: center; }
+.sl.text-only .byline { justify-content: center; }
+
+/* 竖屏：上图下文 */
+@media (max-aspect-ratio: 1/1) {
+  .sl { grid-template-columns: 1fr; grid-template-rows: 50fr 50fr; }
+  .sl.text-only { grid-template-rows: 1fr; }
+  .photo { inset: max(5%, env(safe-area-inset-top)) 5% 4%; width: 90%; height: 88%; }
+  .copy { padding: 3.5vh max(7vw, 20px) max(5vh, calc(env(safe-area-inset-bottom) + 28px)); align-items: flex-start; }
+  .sl .date { margin-bottom: 1rem; }
+  .sl .day { font-size: 2.6rem; }
+  .byline { margin-top: 1.4rem; }
+}
+/* 手机竖屏：图片区再小一点，给文字留空间 */
+@media (max-aspect-ratio: 1/1) and (max-width: 600px) {
+  .sl { grid-template-rows: 42fr 58fr; }
+  .sl .date { gap: 0.6rem; margin-bottom: 0.7rem; }
+  .sl .day { font-size: 2.1rem; }
+  .sl .dmeta { font-size: 0.72rem; padding-left: 0.6rem; }
+  .byline { margin-top: 1rem; font-size: 0.78rem; }
+  .copy-inner { padding: 0.8em 0 1.2em; }
+}
 
 .slide-progress {
   position: absolute;
-  left: 0; right: 0; bottom: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   height: 2px;
+  z-index: 2;
 }
 .slide-progress div {
   height: 100%;
   width: 0;
   background: var(--accent);
-  opacity: 0.5;
+  opacity: 0.55;
 }
 
 /* ---------- 状态 ---------- */
@@ -198,15 +362,16 @@ img { display: block; max-width: 100%; height: auto; }
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 8px 10px;
+  gap: 6px 6px;
   width: max-content;
   max-width: calc(100vw - 24px);
-  padding: 8px 12px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  border-radius: 999px;
   background: var(--panel);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.06);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  backdrop-filter: blur(18px) saturate(1.4);
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
   font-size: 15px;
   line-height: 1;
@@ -224,7 +389,7 @@ img { display: block; max-width: 100%; height: auto; }
   height: 40px;
   padding: 0 12px;
   border: 0;
-  border-radius: 9px;
+  border-radius: 999px;
   background: transparent;
   color: var(--fg);
   font: inherit;
@@ -237,11 +402,11 @@ img { display: block; max-width: 100%; height: auto; }
 .seg {
   display: flex;
   padding: 2px;
-  border-radius: 10px;
+  border-radius: 999px;
   background: var(--line);
 }
 .seg button { height: 36px; }
-.seg button[aria-pressed="true"] { background: var(--bg); }
+.seg button[aria-pressed="true"] { background: var(--bg); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); }
 
 .speed {
   display: flex;
@@ -299,6 +464,8 @@ body:not(.mode-slides) .slides-only { display: none; }
   .controls { gap: 6px; padding: 6px 8px; }
   .speed input { width: 90px; }
   #volume { width: 70px; }
+  .controls button { min-width: 38px; height: 36px; padding: 0 8px; }
+  .seg button { height: 32px; padding: 0 10px; }
   .yt { width: 144px; }
   .toast { bottom: calc(max(14px, env(safe-area-inset-bottom)) + 120px); }
   .speed #speedLabel { display: none; }
@@ -306,5 +473,5 @@ body:not(.mode-slides) .slides-only { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .slide { transition: none; }
+  .photo.on { animation: none; }
 }

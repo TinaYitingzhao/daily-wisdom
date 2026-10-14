@@ -13,7 +13,7 @@
   const $ = (id) => document.getElementById(id);
   const feed = $("feed");
   const slides = $("slides");
-  const slide = $("slide");
+  const stage = $("stage");
   const progress = $("progress");
   const statusEl = $("status");
   const controls = $("controls");
@@ -25,9 +25,11 @@
   // ---------------------------------------------------------------- 设置
 
   const settings = Object.assign(
-    { mode: "scroll", scrollSpeed: 3, slideSpeed: 5, theme: "auto", volume: 60 },
+    { mode: "slides", scrollSpeed: 3, slideSpeed: 5, theme: "auto", volume: 60 },
     load()
   );
+  // 新版默认幻灯片：旧版本保存的“滚动”设置迁移一次
+  if (settings.v !== 2) { settings.mode = "slides"; settings.v = 2; }
 
   function load() {
     try { return JSON.parse(localStorage.getItem("dw-settings")) || {}; } catch { return {}; }
@@ -137,6 +139,7 @@
     playing = v;
     playBtn.innerHTML = v ? ICON_PAUSE : ICON_PLAY;
     playBtn.setAttribute("aria-label", v ? "暂停" : "播放");
+    slides.classList.toggle("paused", !v);
     wakeLock(v);
     if (v) scheduleHide(); else showControls(false);
   }
@@ -220,50 +223,167 @@
   let slideElapsed = 0;
   let slideDuration = 20;
 
+  const MIN_PER_IMAGE = 7; // 多图微博里每张图至少停留的秒数
+
   function durationFor(p) {
     const base = SLIDE_SEC[settings.slideSpeed - 1];
     const chars = (p.text || "").length;
     const factor = Math.min(3, Math.max(1, chars / 140));
-    return base * factor + Math.min(2, (p.images || []).length) * base * 0.15;
+    const n = (p.images || []).length;
+    return Math.max(base * factor, n * Math.max(MIN_PER_IMAGE, base * 0.6));
   }
 
-  function showSlide(i, fade = true) {
+  const dayFmt = new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", day: "numeric" });
+  const ymFmt = new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", year: "numeric", month: "long" });
+  const wdFmt = new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", weekday: "long" });
+  const hmFmt = new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit", hour12: false });
+
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  // 一页幻灯片：左边（竖屏时上边）是图片，右边是日期、正文和署名
+  function slideEl(p) {
+    const imgs = p.images || [];
+    const sl = el("article", "sl" + (imgs.length ? "" : " text-only"));
+    if (!imgs.length && (p.text || "").length <= 60) sl.classList.add("short");
+
+    if (imgs.length) {
+      const media = el("div", "media");
+      const bd = el("img", "backdrop");
+      bd.alt = "";
+      bd.src = imgs[0];
+      media.appendChild(bd);
+      imgs.forEach((src, k) => {
+        const im = el("img", "photo" + (k === 0 ? " on" : ""));
+        im.alt = "";
+        im.src = src;
+        im.decoding = "async";
+        im.onerror = () => im.remove();
+        media.appendChild(im);
+      });
+      if (imgs.length > 1) media.appendChild(el("div", "count", "1 / " + imgs.length));
+      sl.appendChild(media);
+    }
+
+    const copy = el("div", "copy");
+    const inner = el("div", "copy-inner");
+    const d = new Date(p.created_at);
+    const date = el("div", "date");
+    date.append(el("span", "day", dayFmt.format(d).replace(/\D/g, "")));
+    const dm = el("span", "dmeta");
+    dm.append(ymFmt.format(d), document.createElement("br"), wdFmt.format(d) + " · " + hmFmt.format(d));
+    date.appendChild(dm);
+    inner.appendChild(date);
+    if (p.text) inner.appendChild(el("p", "text", p.text));
+    if (profile && profile.name) {
+      const by = el("div", "byline");
+      if (profile.avatar) { const av = el("img"); av.src = profile.avatar; av.alt = ""; by.appendChild(av); }
+      by.appendChild(el("span", "", profile.name));
+      inner.appendChild(by);
+    }
+    copy.appendChild(inner);
+    sl.appendChild(copy);
+    return sl;
+  }
+
+  // 字号随文字长短自适应：从大往小试，放得下就停；实在太长才在停留时间里慢慢滚动
+  function fitText(sl) {
+    const inner = sl.querySelector(".copy-inner");
+    const text = sl.querySelector(".text");
+    if (!inner || !text) return;
+    const vmin = Math.min(innerWidth, innerHeight);
+    const textOnly = sl.classList.contains("text-only");
+    let hi = Math.min(textOnly ? 46 : 34, vmin * (textOnly ? 0.065 : 0.05));
+    const lo = Math.max(16, Math.min(20, vmin * 0.042));
+    hi = Math.max(hi, lo);
+    for (let size = hi; size >= lo; size -= 1) {
+      sl.style.setProperty("--fs", size + "px");
+      if (inner.scrollHeight <= inner.clientHeight + 1) return;
+    }
+    sl.style.setProperty("--fs", lo + "px");
+  }
+
+  let current = null;      // 当前显示的 .sl
+  let slideToken = 0;      // 快速连按时只保留最后一次切换
+  let photoIdx = 0;
+
+  async function showSlide(i, fade = true) {
     if (!posts.length) return;
     if (i >= posts.length || i < 0) {
       if (applyPending()) renderFeed();
       i = (i + posts.length) % posts.length;
     }
+    const token = ++slideToken;
     slideIndex = i;
     slideElapsed = 0;
+    photoIdx = 0;
     slideDuration = durationFor(posts[i]);
-    const swap = () => {
-      slide.replaceChildren(postEl(posts[i], true));
-      slide.scrollTop = 0;
-      slide.classList.remove("fading");
-      // 预加载下一条的图片
-      const n = posts[(i + 1) % posts.length];
-      for (const src of n.images || []) { const im = new Image(); im.src = src; }
-    };
-    if (fade) {
-      slide.classList.add("fading");
-      setTimeout(swap, 900);
-    } else {
-      swap();
+    progress.style.width = "0";
+
+    const next = slideEl(posts[i]);
+    const n = (posts[i].images || []).length;
+    next.style.setProperty("--kb", (n ? slideDuration / n : slideDuration) + 2 + "s");
+    // 等第一张图解码好再切换，避免淡入时闪一下空白
+    const first = next.querySelector(".photo");
+    if (first && first.decode) await Promise.race([first.decode().catch(() => {}), sleep(2500)]);
+    if (token !== slideToken) return;
+
+    stage.appendChild(next);
+    fitText(next);
+    const old = current;
+    current = next;
+    if (!fade) next.style.transition = "none";
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      next.classList.add("in");
+      if (!fade) requestAnimationFrame(() => { next.style.transition = ""; });
+    }));
+    if (old) {
+      old.classList.add("out");
+      setTimeout(() => old.remove(), fade ? 1300 : 0);
     }
+    // 预加载下一条的图片
+    const following = posts[(i + 1) % posts.length];
+    for (const src of following.images || []) { const im = new Image(); im.src = src; }
   }
 
+  function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
   function slideStep(dt) {
+    if (!current) return;
     slideElapsed += dt;
     const p = Math.min(1, slideElapsed / slideDuration);
     progress.style.width = p * 100 + "%";
-    // 内容超出一屏时，在停留时间里缓慢滚完（开头和结尾各停一会）
-    const over = slide.scrollHeight - slide.clientHeight;
+
+    // 多张图：在停留时间里依次淡入切换
+    const photos = current.querySelectorAll(".photo");
+    if (photos.length > 1) {
+      const k = Math.min(photos.length - 1, Math.floor(p * photos.length));
+      if (k !== photoIdx) {
+        photos[photoIdx].classList.remove("on");
+        photos[k].classList.add("on");
+        current.querySelector(".backdrop").src = photos[k].src;
+        current.querySelector(".count").textContent = (k + 1) + " / " + photos.length;
+        photoIdx = k;
+      }
+    }
+
+    // 字号缩到最小仍放不下时，在停留时间里缓慢滚完（开头和结尾各停一会）
+    const inner = current.querySelector(".copy-inner");
+    const over = inner.scrollHeight - inner.clientHeight;
     if (over > 4) {
       const q = Math.min(1, Math.max(0, (p - 0.15) / 0.7));
-      slide.scrollTop = q * over;
+      inner.scrollTop = q * over;
     }
     if (slideElapsed >= slideDuration) showSlide(slideIndex + 1);
   }
+
+  window.addEventListener("resize", () => { if (current) fitText(current); });
+  // 网页字体加载完后字宽会变，重新算一次字号
+  if (document.fonts) document.fonts.ready.then(() => { if (current) fitText(current); });
 
   // ---------------------------------------------------------------- 主循环
 
