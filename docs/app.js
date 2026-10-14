@@ -713,14 +713,36 @@
         events: {
           onReady: () => { music.ytReady = true; applyVolume(); },
           onStateChange: (e) => {
-            if (e.data === YT.PlayerState.PLAYING) { music.fails = 0; clearTimeout(music.watchdog); }
+            if (e.data === YT.PlayerState.PLAYING) {
+              music.fails = 0;
+              clearTimeout(music.watchdog);
+              const t = music.current;
+              if (t && t.type === "yt" && t._mode === "list" && !t._listPlayed) {
+                t._listPlayed = true;
+                // 清单里只有这一个 YouTube 列表时，让列表自己从头循环，按顺序一直播下去
+                try { music.yt.setLoop(music.tracks.length === 1); } catch { /* 旧版播放器 */ }
+              }
+            }
             if (e.data !== YT.PlayerState.ENDED || !music.on || music.current?.type !== "yt") return;
             // YouTube 播放列表：播完最后一首才切到清单里的下一项
-            const list = music.yt.getPlaylist && music.yt.getPlaylist();
+            const list = music.current._mode === "list" && music.yt.getPlaylist && music.yt.getPlaylist();
             if (list && list.length && music.yt.getPlaylistIndex() < list.length - 1) return;
             nextTrack();
           },
-          onError: () => { if (music.on && music.current?.type === "yt") ytFallback(); },
+          onError: () => {
+            if (!music.on || music.current?.type !== "yt") return;
+            const t = music.current;
+            // 列表已经开始播了：只是其中某个视频放不了（禁止嵌入、已删除、地区限制），跳过它
+            if (t._mode === "list" && t._listPlayed) {
+              const list = music.yt.getPlaylist ? music.yt.getPlaylist() || [] : [];
+              const i = music.yt.getPlaylistIndex ? music.yt.getPlaylistIndex() : -1;
+              if (i >= 0 && i < list.length - 1) music.yt.nextVideo();
+              else if (music.tracks.length === 1) music.yt.playVideoAt(0);
+              else nextTrack();
+              return;
+            }
+            ytFallback();
+          },
         },
       });
     };
@@ -824,6 +846,7 @@
       ytBox.classList.remove("off");
       applyVolume();
       t._mode = t.list ? "list" : "video";
+      t._listPlayed = false;
       if (t.list) music.yt.loadPlaylist({ list: t.list, listType: "playlist", index: 0 });
       else music.yt.loadVideoById(t.id);
       armWatchdog();
