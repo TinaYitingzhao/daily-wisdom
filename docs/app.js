@@ -772,6 +772,7 @@
     clearTimeout(music.watchdog);
     if (t && t._mode === "list" && t.id) {
       t._mode = "video";
+      toast("YouTube 播放列表打不开（可能是“私享”列表，请改成“公开”或“不公开列出”），先只播放链接里的这一首");
       music.yt.loadVideoById(t.id);
       armWatchdog();
     } else {
