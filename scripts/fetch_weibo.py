@@ -193,12 +193,35 @@ def shrink(data):
         return data
 
 
+# 有些旧图片的大尺寸版本会被图床拒绝（403），但其他尺寸还在。按从大到小依次换尺寸重试。
+FALLBACK_SIZES = ["large", "orj1080", "mw1024", "mw690", "bmiddle", "orj360"]
+
+
+def size_variants(url):
+    m = re.match(r"(https?://[^/]+/)([^/]+)(/.+)$", url)
+    if not m:
+        return [url]
+    head, size, tail = m.groups()
+    return [url] + [head + s + tail for s in FALLBACK_SIZES if s != size]
+
+
 def download_image(url, dest):
     if dest.exists() and dest.stat().st_size > 0:
         return
-    data = http_get(url, None, referer=IMG_REFERER, accept="image/*")
-    if len(data) < 100:
-        raise FetchError(f"图片内容异常（{len(data)} 字节）：{url}")
+    last = None
+    for candidate in size_variants(url):
+        try:
+            data = http_get(candidate, None, referer=IMG_REFERER, accept="image/*")
+        except FetchError as e:
+            last = e
+            continue
+        if len(data) >= 100:
+            if candidate != url:
+                log(f"  （原图下载失败，改用其他尺寸：{candidate.split('/')[3]}）")
+            break
+        last = FetchError(f"图片内容异常（{len(data)} 字节）：{candidate}")
+    else:
+        raise last or FetchError(f"图片下载失败：{url}")
     data = shrink(data)
     tmp = dest.with_suffix(dest.suffix + ".part")
     tmp.write_bytes(data)
